@@ -25,7 +25,8 @@ import urllib.request
 import io
 import uuid
 import zipfile
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, urlencode, unquote, quote
 
@@ -216,6 +217,16 @@ INVITE_COOKIE = "invite_token"
 INVITE_TTL_HOURS = 3
 # Quanto tempo ha chi apre il link per completare il giro su Google.
 INVITE_COOKIE_TTL_SECONDS = 600
+# Il link di un palco (/p/123) aperto da chi non ha ancora fatto l'accesso:
+# l'indirizzo si parcheggia qui durante il giro su Google, come l'invito, e
+# nel callback si torna li' invece che sulla Home. Dieci minuti come
+# l'invito: e' il tempo di un accesso, non di un promemoria.
+PALCO_COOKIE = "palco_link"
+PALCO_LINK_RE = re.compile(r"^/p/(\d+)$")
+# Il link di un compito, quello che apre l'avviso di scadenza: /c/123. Passa
+# dal server per la stessa ragione di /p/ (la band attiva), e usa lo stesso
+# cookie per sopravvivere al login.
+COMPITO_LINK_RE = re.compile(r"^/c/(\d+)$")
 # secrets.token_urlsafe() non produce mai un punto, quindi separa le due
 # parti dello stato senza possibilita' di equivoci.
 STATE_INVITE_SEP = "."
@@ -226,6 +237,9 @@ WORKSPACE_SCOPED_TABLES = [
     "locations", "art_directors", "bands",
     "wa_templates", "mail_templates", "venue_types", "venue_categories",
     "venue_list_values", "cash_entries",
+    # I compiti stanno qui per il compito senza palco: gli altri se ne
+    # andrebbero comunque in cascata con la loro location, questo no.
+    "tasks",
 ]
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -345,7 +359,11 @@ DEFAULT_COST_CATEGORIES = [
 
 CASH_FIELDS = ["kind", "entry_date", "description", "amount", "category", "gig_id", "paid"]
 
-ART_DIRECTOR_FIELDS = ["name", "phone", "email", "facebook", "instagram", "notes"]
+ART_DIRECTOR_FIELDS = [
+    "name", "company", "address", "city", "landline", "phone", "email",
+    "website", "facebook", "instagram", "linkedin", "notes",
+    "company_landline", "company_phone", "company_website", "company_facebook", "company_instagram",
+]
 BAND_FIELDS = ["name", "facebook", "followers", "base", "contact", "gigs_count", "notes"]
 
 # Una segnalazione nasce "da valutare"; l'amministratore dell'app la chiude
@@ -375,8 +393,14 @@ MAX_REPORT_CHARS = 4000
 # l'elenco diceva "Contattato" perche' lo diceva la serata. Quella copia non
 # c'e' piu'. A che punto e' la trattativa lo dice la serata, e lo dice dove
 # la serata si vede.
+#
+# "Interessato" (2 ottobre 2026) sta fra prospect e cliente: con quel posto
+# ci hai parlato e ha detto che gli interessa, che e' piu' di uno su cui stai
+# puntando e meno di uno dove hai gia' suonato. Era uno stato della serata, e
+# Stefano l'ha spostato qui: l'interesse e' del posto, non del tentativo di
+# quest'anno. Lo sceglie chi lo sa, come prospect.
 LOCATION_STATUS_VALUES = {
-    "lead", "prospect", "cliente", "inattivo", "archiviato",
+    "lead", "prospect", "interessato", "cliente", "inattivo", "archiviato",
 }
 
 # Una serata esiste perche' hai deciso di provarci, e il suo punto di
@@ -393,11 +417,12 @@ LOCATION_STATUS_VALUES = {
 # il primo segmento dell'Agenda e le due cose si confondevano (li' sono i
 # palchi da richiamare adesso, qui il punto di partenza di un
 # tentativo), e "in trattativa" era l'unico stato con una preposizione
-# davanti. "Interessato" e' entrato in mezzo: hai parlato con qualcuno e ha
-# detto che gli interessa, che non e' ancora trattare una data e un
-# compenso, ma non e' nemmeno solo "l'ho chiamato".
+# davanti. "Interessato", entrato lo stesso giorno fra contattato e
+# trattativa, e' uscito il 2 ottobre 2026: e' diventato uno stato del palco
+# (vedi LOCATION_STATUS_VALUES), e le serate che c'erano dentro sono passate
+# a "trattativa" — vedi migrate_drop_gig_interessato.
 GIG_STATUS_VALUES = {
-    "contattato", "interessato", "trattativa",
+    "contattato", "trattativa",
     "confermato", "rifiutata", "suonato", "annullato",
 }
 
@@ -436,13 +461,13 @@ INACTIVE_STATUS = "inattivo"
 # archiviare, e ripristinare lo rimette al posto che gli spetta.
 ARCHIVED_STATUS = "archiviato"
 
-# I quattro che si scelgono a mano dalla scheda.
+# I cinque che si scelgono a mano dalla scheda.
 MANUAL_LOCATION_STATUSES = LOCATION_STATUS_VALUES - {ARCHIVED_STATUS}
 
 # Gli stati della serata applicati alla singola stagione invece che al
 # palco: e' quello che permette di ripartire da zero ogni anno senza
 # cancellare com'e' andata quello prima.
-GIG_FIELDS = ["status", "gig_date", "fee", "outcome_note"]
+GIG_FIELDS = ["status", "gig_date", "fee", "fee_paid", "outcome_note"]
 
 # I due modi in cui una serata finisce davvero: "suonato" ci sei andato,
 # "annullato" era fissata e poi e' saltata — piove, il locale chiude,
@@ -522,6 +547,11 @@ NOTE_KIND_LABELS = {
     "email": "Email inviata",
 }
 
+# Gli invii che partono da un'altra app (WhatsApp, la posta): un secondo tocco
+# entro questa finestra non diventa una seconda riga. Vedi add_note.
+NOTE_INVII_SENZA_DOPPIONI = ("messaggio", "email")
+NOTE_INVIO_FINESTRA = timedelta(minutes=10)
+
 # Chi si e' mosso (15 settembre 2026). "Telefonata" da sola non dice se hai
 # chiamato tu o se ti hanno risposto loro, e sono due cose molto diverse:
 # senza questa parola non si puo' chiedere all'app chi non ha mai risposto.
@@ -569,10 +599,21 @@ def init_db():
         CREATE TABLE IF NOT EXISTS art_directors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            landline TEXT,
             phone TEXT,
             email TEXT,
             facebook TEXT,
             instagram TEXT,
+            linkedin TEXT,
+            website TEXT,
+            company TEXT,
+            address TEXT,
+            city TEXT,
+            company_landline TEXT,
+            company_phone TEXT,
+            company_website TEXT,
+            company_facebook TEXT,
+            company_instagram TEXT,
             photo TEXT,
             notes TEXT,
             created_at TEXT NOT NULL
@@ -794,22 +835,31 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'contattato',
             gig_date TEXT,
             fee REAL,
+            fee_paid INTEGER NOT NULL DEFAULT 1,
             outcome_note TEXT,
             closed_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
 
-        -- I compiti di un palco: "mandare il preventivo", "richiamare
-        -- il gestore lunedi'". Sono attaccati al posto come le serate, e
-        -- come quelle ce ne possono essere piu' d'uno per volta; a
+        -- I compiti: "mandare il preventivo", "richiamare il gestore
+        -- lunedi'". Quasi sempre sono attaccati a un palco come le serate,
+        -- e come quelle ce ne possono essere piu' d'uno per volta; a
         -- differenza delle serate non si chiudono a vicenda — dieci cose da
         -- fare sullo stesso locale sono dieci righe, tutte vive insieme.
         -- assignee_email e' l'email di un membro della band, la stessa
         -- chiave con cui si scrive chi possiede un palco.
+        --
+        -- location_id puo' mancare: dall'Agenda si scrive anche un compito
+        -- che non e' di nessun palco ("rinnovare l'assicurazione del
+        -- furgone"). Per quelli il posto nel mondo lo dice workspace_id, che
+        -- sugli altri e' la copia del workspace del palco: cosi' una query
+        -- sui compiti di una band non deve passare per forza dalle
+        -- locations, e cancellare una band se li porta via tutti.
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            location_id INTEGER NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+            location_id INTEGER REFERENCES locations(id) ON DELETE CASCADE,
+            workspace_id INTEGER,
             description TEXT NOT NULL,
             due_date TEXT,
             status TEXT NOT NULL DEFAULT 'da_fare',
@@ -869,6 +919,33 @@ def init_db():
             user_agent TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
+        );
+
+        -- Le impostazioni dell'installazione che si cambiano dall'Admin mentre
+        -- l'app gira (25 settembre 2026): per ora solo l'interruttore di
+        -- Telegram. Chiave e valore, di tutta l'installazione e non di una
+        -- band, come l'Admin.
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_by TEXT,
+            updated_at TEXT NOT NULL
+        );
+
+        -- Gli avvisi di scadenza gia' partiti (26 settembre 2026). Servono a
+        -- una cosa sola: non mandarne mai due uguali, nemmeno dopo un
+        -- riavvio. La scadenza sta nella chiave apposta: spostare la data di
+        -- un compito fa ripartire i suoi avvisi, e anche l'email, perche'
+        -- chi prende in carico un compito riassegnato riceve i suoi.
+        CREATE TABLE IF NOT EXISTS task_reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL,
+            due_date TEXT NOT NULL,
+            email TEXT NOT NULL,
+            devices INTEGER NOT NULL DEFAULT 0,
+            sent_at TEXT NOT NULL,
+            UNIQUE(task_id, kind, due_date, email)
         );
 
         CREATE INDEX IF NOT EXISTS idx_push_email ON push_subscriptions(email);
@@ -1139,6 +1216,7 @@ def migrate_schema(conn):
     conn.execute("UPDATE workspace_members SET role = 'leader' WHERE role = 'owner'")
 
     migrate_to_workspaces(conn)
+    migrate_tasks_senza_palco(conn)
     migrate_to_gigs(conn)
     migrate_drop_season(conn)
     migrate_to_next_contact_date(conn)
@@ -1146,8 +1224,13 @@ def migrate_schema(conn):
     migrate_to_venue_lifecycle(conn)
     migrate_to_gig_opportunita(conn)
     migrate_drop_gig_opportunita(conn)
+    migrate_drop_gig_interessato(conn)
     migrate_photos_cover(conn)
     migrate_art_director_social(conn)
+    migrate_template_owner(conn)
+    migrate_task_close(conn)
+    migrate_gig_fee_paid(conn)
+    migrate_suonato_closed_at(conn)
     migrate_venue_type_icon(conn)
     migrate_to_mail_templates(conn)
     if venue_lists_are_new:
@@ -1233,13 +1316,90 @@ def migrate_photos_cover(conn):
     conn.execute("ALTER TABLE photos ADD COLUMN is_cover INTEGER NOT NULL DEFAULT 0")
 
 
+def migrate_task_close(conn):
+    """Le quattro colonne della chiusura di un compito (24 settembre 2026).
+
+    Ognuna dice da dove viene una riga: il compito nuovo da quello chiuso,
+    l'opportunita' e la riga dello storico dal compito che le ha fatte
+    nascere, e il perche' di un Declinato. Nessuna ha ON DELETE CASCADE, e
+    non per dimenticanza: cancellare un compito non deve portarsi via la
+    serata o la telefonata che ha generato. Un rimando a un compito che non
+    c'e' piu' semplicemente non si mostra."""
+    for tabella, colonna, tipo in (
+        ("tasks", "follows_task_id", "INTEGER"),
+        ("tasks", "close_note", "TEXT"),
+        ("gigs", "from_task_id", "INTEGER"),
+        ("notes", "task_id", "INTEGER"),
+        # Il compito di un'opportunita' (24 settembre 2026). Un compito sta
+        # da solo, su un palco o su un'opportunita' di quel palco: in
+        # quest'ultimo caso location_id resta scritto anche lui, ed e' il
+        # palco dell'opportunita' — cosi' tutto quello che cerca i compiti
+        # per palco (la scheda, l'Agenda, i permessi) non cambia.
+        ("tasks", "gig_id", "INTEGER"),
+    ):
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({tabella})").fetchall()}
+        if colonna not in cols:
+            conn.execute(f"ALTER TABLE {tabella} ADD COLUMN {colonna} {tipo}")
+
+
+def migrate_suonato_closed_at(conn):
+    """Una serata suonata si chiude la sera in cui si suona (26 settembre
+    2026, chiesto da Stefano): closed_at = gig_date. Prima era il momento
+    dell'ultimo salvataggio — il pannello della serata rimanda sempre lo
+    stato, e ogni ritocco al compenso spostava la chiusura a oggi — quindi
+    le 22 suonate avevano tutte una data di settembre 2026. Idempotente:
+    da qui in avanti scrivi_gig_* tengono le due date uguali da sole."""
+    conn.execute(
+        "UPDATE gigs SET closed_at = gig_date WHERE status = 'suonato' "
+        "AND gig_date IS NOT NULL AND closed_at IS NOT gig_date"
+    )
+
+
+def migrate_gig_fee_paid(conn):
+    """Il compenso di una serata suonata puo' non essere ancora arrivato
+    (26 settembre 2026, chiesto da Stefano): la spunta Incassato sta sulla
+    serata, perche' il compenso in cassa non e' una riga ma una proiezione
+    di gigs.fee. Il DEFAULT 1 riempie anche le righe che ci sono gia': fino
+    a oggi ogni suonata contava come incassata, e i totali non si muovono."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(gigs)").fetchall()}
+    if "fee_paid" not in cols:
+        conn.execute("ALTER TABLE gigs ADD COLUMN fee_paid INTEGER NOT NULL DEFAULT 1")
+
+
+def migrate_template_owner(conn):
+    """Chi ha scritto un modello, e se lo vedono tutti o solo lui.
+
+    I modelli che c'erano gia' restano senza proprietario e pubblici, cioe'
+    come i modelli nati con la band: di nessuno non si sapeva chi li avesse
+    scritti, e indovinarlo avrebbe fatto sparire a qualcuno un modello che
+    usava ieri. Da qui in avanti chi ne scrive uno nuovo ne e' il
+    proprietario, e il modello nasce privato."""
+    for tabella in ("wa_templates", "mail_templates"):
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({tabella})").fetchall()}
+        if "owner_email" not in cols:
+            conn.execute(f"ALTER TABLE {tabella} ADD COLUMN owner_email TEXT")
+        if "is_public" not in cols:
+            conn.execute(f"ALTER TABLE {tabella} ADD COLUMN is_public INTEGER NOT NULL DEFAULT 1")
+
+
 def migrate_art_director_social(conn):
     """I due social e la foto dell'art director. La foto sta in una colonna
     sua e non nella tabella photos: quella e' la striscia di un palco, con la
     copertina da scegliere fra tante; qui la foto e' una sola, ed e' la
-    faccia della persona."""
+    faccia della persona.
+
+    LinkedIn e' arrivato dopo, e sta solo qui: un art director e' una persona
+    che lavora, e spesso e' li' che ha la faccia vera; un palco su LinkedIn
+    non ci sta quasi mai."""
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(art_directors)").fetchall()}
-    for colonna in ("facebook", "instagram", "photo"):
+    # L'azienda e il suo indirizzo: l'art director spesso lavora per
+    # un'agenzia, ed e' li' che si manda il materiale su carta.
+    # Il fisso, come sui palchi: "phone" resta il cellulare, quello da cui
+    # partono Chiama e WhatsApp.
+    for colonna in ("facebook", "instagram", "linkedin", "photo", "company", "address", "city", "website", "landline",
+                    # I recapiti dell'agenzia, distinti da quelli della persona.
+                    "company_landline", "company_phone", "company_website",
+                    "company_facebook", "company_instagram"):
         if colonna not in cols:
             conn.execute(f"ALTER TABLE art_directors ADD COLUMN {colonna} TEXT")
 
@@ -1360,6 +1520,29 @@ def migrate_drop_gig_opportunita(conn):
         print("  Stati delle serate: %d \"opportunita'\" diventano \"contattato\"." % n)
 
 
+def migrate_drop_gig_interessato(conn):
+    """Toglie lo stato "interessato" dalle serate (2 ottobre 2026).
+
+    Diventano "trattativa", come ha chiesto Stefano: chi ha detto che gli
+    interessa sta gia' parlando di una data, e tornare a "contattato"
+    sarebbe un passo indietro che nessuno ha fatto. "Interessato" adesso e'
+    uno stato del palco, ma il palco qui non si tocca: lo stato del palco lo
+    scrive chi lo decide, non una migrazione.
+
+    Vale anche per le serate chiuse, per le quali "interessato" non poteva
+    comunque esserci: chiudere vuol dire suonato, annullato o rifiutata.
+
+    Idempotente: gira a ogni avvio e dopo la prima volta non trova piu'
+    niente.
+    """
+    n = conn.execute(
+        "UPDATE gigs SET status = 'trattativa', updated_at = ? WHERE status = 'interessato'",
+        (now_iso(),),
+    ).rowcount
+    if n:
+        print("  Stati delle serate: %d \"interessato\" diventano \"trattativa\"." % n)
+
+
 def migrate_to_gig_opportunita(conn):
     """"Da contattare" diventa "opportunita'" (15 settembre 2026).
 
@@ -1443,6 +1626,62 @@ def migrate_to_next_contact_date(conn):
     conn.execute("DROP INDEX IF EXISTS idx_locations_recontact")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_locations_next_contact ON locations(next_contact_date)"
+    )
+
+
+def migrate_tasks_senza_palco(conn):
+    """Toglie il vincolo che legava ogni compito a un palco.
+
+    Fino a ieri un compito nasceva dentro la scheda di un posto e non poteva
+    esistere altrove. Dall'Agenda adesso se ne scrivono anche di slegati —
+    "rinnovare l'assicurazione del furgone" non e' di nessun locale — e
+    location_id deve poter restare vuoto. SQLite non sa allentare un NOT NULL
+    con una ALTER: la tabella si copia e si scambia, come si e' gia' fatto
+    per le serate.
+
+    Il workspace va scritto prima dello scambio: sui compiti che c'erano e'
+    quello del loro palco, ed e' l'unico momento in cui si puo' dedurre senza
+    chiederlo a nessuno.
+
+    Gira una volta sola — al riavvio dopo il vincolo non c'e' piu'.
+    """
+    info = conn.execute("PRAGMA table_info(tasks)").fetchall()
+    loc = [r for r in info if r["name"] == "location_id"]
+    if not loc or not loc[0]["notnull"]:
+        return
+    conn.execute(
+        "UPDATE tasks SET workspace_id = ("
+        "  SELECT l.workspace_id FROM locations l WHERE l.id = tasks.location_id"
+        ") WHERE workspace_id IS NULL"
+    )
+    conn.executescript(
+        """
+        PRAGMA foreign_keys = OFF;
+        BEGIN;
+        CREATE TABLE tasks_sciolti (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            location_id INTEGER REFERENCES locations(id) ON DELETE CASCADE,
+            workspace_id INTEGER,
+            description TEXT NOT NULL,
+            due_date TEXT,
+            status TEXT NOT NULL DEFAULT 'da_fare',
+            assignee_email TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        INSERT INTO tasks_sciolti
+            (id, location_id, workspace_id, description, due_date, status,
+             assignee_email, created_at, updated_at)
+            SELECT id, location_id, workspace_id, description, due_date, status,
+                   assignee_email, created_at, updated_at
+            FROM tasks;
+        DROP TABLE tasks;
+        ALTER TABLE tasks_sciolti RENAME TO tasks;
+        CREATE INDEX IF NOT EXISTS idx_tasks_location ON tasks(location_id);
+        CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id);
+        COMMIT;
+        PRAGMA foreign_keys = ON;
+        """
     )
 
 
@@ -1794,8 +2033,81 @@ def google_fetch_userinfo(access_token):
 # funzione per ogni fatto da notificare. Aggiungerne uno nuovo e' scrivere
 # un'altra notify_* e chiamarla dove il fatto succede.
 
+# L'interruttore dell'Admin (25 settembre 2026). TELEGRAM_ENABLED nel .env
+# resta, ma per girarlo bisogna ricostruire il container; questo si gira dal
+# telefono e vale subito. Tutti e due devono dire si': il .env spegne per
+# chi tiene su l'installazione, l'Admin per chi la usa.
+#
+# Sta in memoria oltre che in app_settings: telegram_send parte da decine
+# di punti che non hanno una connessione in mano, e chiedere il database a
+# ogni notifica per sapere se tacere sarebbe il costo sbagliato. Si legge
+# all'avvio (load_app_settings) e si riscrive quando l'Admin lo cambia.
+TELEGRAM_ADMIN_ON = True
+
+
 def telegram_enabled():
-    return bool(TELEGRAM_ENABLED and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
+    return bool(TELEGRAM_ENABLED and TELEGRAM_ADMIN_ON and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
+
+
+def load_app_settings(conn):
+    global TELEGRAM_ADMIN_ON, PROMEMORIA_ORA, AGENDA_LISTE_VECCHIE
+    row = conn.execute("SELECT value FROM app_settings WHERE key = 'telegram_on'").fetchone()
+    TELEGRAM_ADMIN_ON = (row is None) or row["value"] != "0"
+    row = conn.execute("SELECT value FROM app_settings WHERE key = 'agenda_old_lists'").fetchone()
+    AGENDA_LISTE_VECCHIE = (row is not None) and row["value"] == "1"
+    row = conn.execute(
+        "SELECT value FROM app_settings WHERE key = 'task_reminder_hour'"
+    ).fetchone()
+    try:
+        ora = int(row["value"]) if row else PROMEMORIA_ORA_PREDEFINITA
+    except (TypeError, ValueError):
+        ora = PROMEMORIA_ORA_PREDEFINITA
+    PROMEMORIA_ORA = ora if 0 <= ora <= 23 else PROMEMORIA_ORA_PREDEFINITA
+
+
+# Le due code vecchie dell'Agenda, "Da contattare" e "Da pianificare" (30
+# settembre 2026): dall'Admin si nascondono per tutti, e nascoste e' il
+# predefinito — una riga che manca in app_settings vuol dire nascoste. Al
+# loro posto c'e' "Pianificazioni". In memoria come Telegram: viaggia in
+# ogni /api/me, e chiedere il database a ogni avvio dell'app per un si' o
+# un no sarebbe il costo sbagliato.
+AGENDA_LISTE_VECCHIE = False
+
+
+def set_agenda_liste_vecchie(conn, visibili, email):
+    global AGENDA_LISTE_VECCHIE
+    conn.execute(
+        "INSERT INTO app_settings (key, value, updated_by, updated_at) "
+        "VALUES ('agenda_old_lists', ?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, "
+        "updated_at = excluded.updated_at",
+        ("1" if visibili else "0", email, now_iso()),
+    )
+    conn.commit()
+    AGENDA_LISTE_VECCHIE = bool(visibili)
+    return {"old_lists": AGENDA_LISTE_VECCHIE}
+
+
+def telegram_stato():
+    return {
+        "configured": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID),
+        "env_enabled": bool(TELEGRAM_ENABLED),
+        "admin_on": bool(TELEGRAM_ADMIN_ON),
+        "active": telegram_enabled(),
+    }
+
+
+def set_telegram_admin(conn, on, email):
+    global TELEGRAM_ADMIN_ON
+    conn.execute(
+        "INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES ('telegram_on', ?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, "
+        "updated_at = excluded.updated_at",
+        ("1" if on else "0", email, now_iso()),
+    )
+    conn.commit()
+    TELEGRAM_ADMIN_ON = bool(on)
+    return telegram_stato()
 
 
 def telegram_send(text):
@@ -2085,6 +2397,263 @@ def notify_push_prova(conn, emails, testo=None):
         if quanti:
             esiti.append({"email": email, "devices": quanti})
     return esiti
+
+
+# --- gli avvisi di scadenza dei compiti ---------------------------------
+# Il primo fatto dell'app che manda una push (26 settembre 2026, chiesto da
+# Stefano): a chi ha un compito da fare arriva un avviso 8 giorni prima della
+# scadenza e, se e' ancora da fare, un sollecito 2 giorni prima.
+#
+# Niente cron: il server e' un processo solo in un container solo, e un
+# thread che si sveglia ogni dieci minuti basta e avanza. Il pezzo delicato
+# non e' quando girare ma non mandare mai due volte la stessa cosa, e lo fa
+# task_reminders: prima si prenota la riga, poi si manda.
+#
+# Si ragiona a finestre e non a giorni esatti: "esattamente 8 giorni prima"
+# salterebbe il giorno che il server era spento, o il compito scritto con 5
+# giorni di margine. Il primo avviso parte fra 8 e 3 giorni dalla scadenza,
+# il sollecito fra 2 e 0; dopo la scadenza non parte niente — il compito e'
+# gia' rosso in Agenda, e una notifica al giorno per sempre la si spegne.
+
+PROMEMORIA_PRIMO_GIORNI = 8
+PROMEMORIA_SOLLECITO_GIORNI = 2
+PROMEMORIA_ORA_PREDEFINITA = 10
+# Riletta da app_settings all'avvio (load_app_settings) e riscritta
+# dall'Admin, come l'interruttore di Telegram.
+PROMEMORIA_ORA = PROMEMORIA_ORA_PREDEFINITA
+PROMEMORIA_OGNI_SECONDI = 600
+# Il container gira in UTC: "oggi" e "fra 8 giorni" sono quelli di chi usa
+# l'app, e l'ora dell'Admin e' un'ora italiana.
+FUSO_BAND = ZoneInfo("Europe/Rome")
+# Il thread e il pulsante dell'Admin non devono girare insieme.
+_PROMEMORIA_LOCK = threading.Lock()
+PROMEMORIA_ULTIMO_GIRO = {"at": None, "sent": 0}
+
+_GIORNI_IT = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
+_MESI_IT = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio",
+            "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+
+
+def _quando_scade(giorni, scadenza):
+    if giorni == 0:
+        return "oggi"
+    if giorni == 1:
+        return "domani"
+    if giorni == 2:
+        return "dopodomani"
+    return "%s %d %s (fra %d giorni)" % (
+        _GIORNI_IT[scadenza.weekday()], scadenza.day, _MESI_IT[scadenza.month - 1], giorni
+    )
+
+
+def promemoria_dovuti(conn, oggi):
+    """I compiti che oggi hanno un avviso da ricevere e non l'hanno ancora
+    avuto. Da fare, con scadenza e assegnatario, e l'assegnatario deve
+    essere ancora della band. I compiti di un palco archiviato restano fuori
+    come restano fuori dall'Agenda: su un posto messo via non c'e' niente
+    da fare."""
+    righe = conn.execute(
+        """
+        SELECT t.id, t.description, t.due_date, t.assignee_email AS email,
+               l.name AS palco, w.name AS band,
+               (SELECT COUNT(*) FROM workspace_members m2
+                 WHERE m2.email = t.assignee_email) AS bande
+        FROM tasks t
+        LEFT JOIN locations l ON l.id = t.location_id
+        LEFT JOIN workspaces w ON w.id = COALESCE(l.workspace_id, t.workspace_id)
+        WHERE t.status = ?
+          AND t.assignee_email IS NOT NULL AND t.assignee_email <> ''
+          AND t.due_date BETWEEN ? AND ?
+          AND (t.location_id IS NULL OR l.deleted_at IS NULL)
+          AND EXISTS (SELECT 1 FROM workspace_members m
+                       WHERE m.workspace_id = COALESCE(l.workspace_id, t.workspace_id)
+                         AND m.email = t.assignee_email)
+        ORDER BY t.due_date, t.id
+        """,
+        (TASK_TODO, oggi.isoformat(),
+         (oggi + timedelta(days=PROMEMORIA_PRIMO_GIORNI)).isoformat()),
+    ).fetchall()
+    dovuti = []
+    for r in righe:
+        try:
+            scadenza = date.fromisoformat(r["due_date"])
+        except ValueError:
+            continue
+        giorni = (scadenza - oggi).days
+        kind = "sollecito" if giorni <= PROMEMORIA_SOLLECITO_GIORNI else "primo"
+        gia = conn.execute(
+            "SELECT 1 FROM task_reminders WHERE task_id = ? AND kind = ? "
+            "AND due_date = ? AND email = ?",
+            (r["id"], kind, r["due_date"], r["email"]),
+        ).fetchone()
+        if gia:
+            continue
+        d = dict(r)
+        d.update(kind=kind, giorni=giorni, scadenza=scadenza)
+        dovuti.append(d)
+    return dovuti
+
+
+def notify_promemoria_compito(conn, p):
+    """Una notifica per compito (scelta di Stefano): ognuna dice cosa c'e'
+    da fare e il tocco apre quel compito. La band si scrive solo a chi ne
+    ha piu' d'una, altrimenti e' una parola in piu' su uno schermo piccolo."""
+    if p["kind"] == "primo":
+        titolo = "Compito in scadenza"
+    else:
+        titolo = "Promemoria: compito ancora da fare"
+    if p.get("bande", 0) > 1 and p.get("band"):
+        titolo += " · " + p["band"]
+    cosa = "«%s»" % (p["description"] or "Compito")
+    if p.get("palco"):
+        cosa += " · " + p["palco"]
+    testo = "%s\nScade %s" % (cosa, _quando_scade(p["giorni"], p["scadenza"]))
+    return push_send(conn, p["email"], titolo, testo, "/c/%d" % p["id"])
+
+
+def invia_promemoria_compiti(conn, adesso=None):
+    """Un giro: manda gli avvisi dovuti adesso e restituisce quelli partiti.
+    `adesso` si passa per le prove; senza, e' l'ora italiana di adesso.
+
+    La riga in task_reminders si prenota PRIMA di mandare, con INSERT OR
+    IGNORE: se due giri si sovrapponessero, solo uno la vince. Se poi la
+    persona non ha nessun dispositivo la prenotazione si toglie — chi
+    accende le notifiche al quinto giorno riceve il primo avviso al giro
+    dopo, invece di averlo perso senza saperlo."""
+    if not push_enabled():
+        return []
+    adesso = adesso or datetime.now(FUSO_BAND)
+    partiti = []
+    with _PROMEMORIA_LOCK:
+        for p in promemoria_dovuti(conn, adesso.date()):
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO task_reminders "
+                "(task_id, kind, due_date, email, devices, sent_at) VALUES (?, ?, ?, ?, 0, ?)",
+                (p["id"], p["kind"], p["due_date"], p["email"], now_iso()),
+            )
+            conn.commit()
+            if cur.rowcount == 0:
+                continue
+            quanti = notify_promemoria_compito(conn, p)
+            if quanti:
+                conn.execute(
+                    "UPDATE task_reminders SET devices = ? WHERE id = ?", (quanti, cur.lastrowid)
+                )
+                partiti.append({"task_id": p["id"], "kind": p["kind"], "email": p["email"]})
+            else:
+                conn.execute("DELETE FROM task_reminders WHERE id = ?", (cur.lastrowid,))
+            conn.commit()
+        PROMEMORIA_ULTIMO_GIRO["at"] = now_iso()
+        PROMEMORIA_ULTIMO_GIRO["sent"] = len(partiti)
+    if partiti:
+        print("[promemoria] %s" % (
+            "partito 1 avviso di scadenza" if len(partiti) == 1
+            else "partiti %d avvisi di scadenza" % len(partiti)
+        ))
+    return partiti
+
+
+def _promemoria_loop():
+    """Il giro periodico. Prima dell'ora scelta in Admin non manda niente:
+    un deploy alle tre di notte non deve svegliare nessuno. Dopo, ogni dieci
+    minuti guarda se c'e' qualcosa di nuovo — un compito scritto alle
+    quattro del pomeriggio con cinque giorni di margine riceve il suo
+    avviso al giro dopo, non il giorno seguente."""
+    time.sleep(30)
+    while True:
+        try:
+            if push_enabled() and datetime.now(FUSO_BAND).hour >= PROMEMORIA_ORA:
+                conn = get_conn()
+                try:
+                    invia_promemoria_compiti(conn)
+                finally:
+                    conn.close()
+        except Exception as errore:  # un giro andato storto non ferma i prossimi
+            print("[promemoria] %s: %s" % (type(errore).__name__, errore))
+        time.sleep(PROMEMORIA_OGNI_SECONDI)
+
+
+def promemoria_partenza_silenziosa(conn, oggi=None):
+    """Alla prima accensione gli avvisi gia' dovuti si segnano come mandati,
+    senza mandarli (scelta di Stefano, 26 settembre 2026): il giorno del
+    rilascio c'erano dodici compiti nella finestra, tutti della stessa
+    persona, e sarebbero arrivati sul suo telefono tutti insieme. Gira una
+    volta sola, ricordata in app_settings; i solleciti di quei compiti
+    partono regolarmente, perche' sono un'altra riga."""
+    if conn.execute(
+        "SELECT 1 FROM app_settings WHERE key = 'task_reminders_started'"
+    ).fetchone():
+        return 0
+    oggi = oggi or datetime.now(FUSO_BAND).date()
+    dovuti = promemoria_dovuti(conn, oggi)
+    conn.executemany(
+        "INSERT OR IGNORE INTO task_reminders "
+        "(task_id, kind, due_date, email, devices, sent_at) VALUES (?, ?, ?, ?, 0, ?)",
+        [(p["id"], p["kind"], p["due_date"], p["email"], now_iso()) for p in dovuti],
+    )
+    conn.execute(
+        "INSERT INTO app_settings (key, value, updated_by, updated_at) "
+        "VALUES ('task_reminders_started', ?, NULL, ?)",
+        (oggi.isoformat(), now_iso()),
+    )
+    conn.commit()
+    if dovuti:
+        print("[promemoria] prima accensione: %d avvisi gia' dovuti segnati senza mandarli" % len(dovuti))
+    return len(dovuti)
+
+
+def avvia_promemoria():
+    threading.Thread(target=_promemoria_loop, daemon=True, name="promemoria").start()
+
+
+def promemoria_stato(conn):
+    recenti = conn.execute(
+        """
+        SELECT r.kind, r.due_date, r.email, r.devices, r.sent_at,
+               t.description, p.name
+        FROM task_reminders r
+        LEFT JOIN tasks t ON t.id = r.task_id
+        LEFT JOIN user_profiles p ON p.email = r.email
+        WHERE r.devices > 0
+        ORDER BY r.sent_at DESC LIMIT 10
+        """
+    ).fetchall()
+    return {
+        "hour": PROMEMORIA_ORA,
+        "active": push_enabled(),
+        "first_days": PROMEMORIA_PRIMO_GIORNI,
+        "reminder_days": PROMEMORIA_SOLLECITO_GIORNI,
+        "last_run": PROMEMORIA_ULTIMO_GIRO["at"],
+        "last_sent": PROMEMORIA_ULTIMO_GIRO["sent"],
+        "recent": [
+            {
+                "kind": r["kind"], "due_date": r["due_date"], "sent_at": r["sent_at"],
+                "description": r["description"], "devices": r["devices"],
+                "name": r["name"] or r["email"].split("@")[0],
+            }
+            for r in recenti
+        ],
+    }
+
+
+def set_promemoria_ora(conn, ora, email):
+    global PROMEMORIA_ORA
+    try:
+        ora = int(ora)
+    except (TypeError, ValueError):
+        raise ApiError(400, "Ora non valida")
+    if not 0 <= ora <= 23:
+        raise ApiError(400, "Ora non valida")
+    conn.execute(
+        "INSERT INTO app_settings (key, value, updated_by, updated_at) "
+        "VALUES ('task_reminder_hour', ?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, "
+        "updated_at = excluded.updated_at",
+        (str(ora), email, now_iso()),
+    )
+    conn.commit()
+    PROMEMORIA_ORA = ora
+    return promemoria_stato(conn)
 
 
 # --- workspace (le band) e inviti ---------------------------------------
@@ -2498,6 +3067,8 @@ def fetch_me(conn, email):
     d["is_admin"] = (not auth_enabled()) or is_admin(email)
     d["role"] = member_role(conn, active, email) if (active and email) else "leader"
     d["can_write"] = d["role"] != "slaker"
+    # Di tutta l'installazione, non della persona: lo decide l'Admin.
+    d["agenda_old_lists"] = AGENDA_LISTE_VECCHIE
     return d
 
 
@@ -2924,6 +3495,7 @@ PHOTO_ORDER = "ORDER BY is_cover DESC, created_at ASC"
 def gig_to_dict(row):
     d = dict(row)
     d["open"] = d.get("closed_at") is None
+    d["fee_paid"] = bool(d.get("fee_paid", 1))
     return d
 
 
@@ -2944,7 +3516,8 @@ def venue_status_from_gigs(conn, loc_id):
     cliente se ci hai suonato almeno una volta, inattivo se ci hai provato,
     lead se non c'e' mai stato nessun tentativo.
 
-    Non e' la verita' su tutti — prospect lo decidi tu e da qui non esce mai
+    Non e' la verita' su tutti — prospect e interessato li decidi tu e da qui
+    non escono mai
     — ma e' quella giusta quando un palco torna dall'archivio e
     bisogna rimetterlo da qualche parte.
     """
@@ -3066,6 +3639,8 @@ def clean_gig_payload(body, partial):
                 raise ApiError(400, "Data della serata non valida")
         elif field == "fee":
             value = to_number_or_none(value, float)
+        elif field == "fee_paid":
+            value = 1 if value else 0
         elif isinstance(value, str):
             value = value.strip()
         data[field] = value
@@ -3086,6 +3661,26 @@ def create_gig(conn, ws, loc_id, body):
     data = clean_gig_payload(body or {}, partial=False)
     data.setdefault("status", "contattato")
     require_gig_date_if_confirmed(data["status"], data.get("gig_date"))
+    scrivi_gig_nuova(conn, loc_id, data)
+    conn.commit()
+    return fetch_location(conn, ws, loc_id)
+
+
+def data_di_chiusura(status, gig_date, ts):
+    """Quando si e' chiusa un'opportunita'. Suonato si chiude la sera della
+    serata, non il giorno in cui lo segni; Annullato e Rifiutata il giorno in
+    cui lo scrivi, che e' l'unico dato che c'e'. Le altre sono aperte."""
+    if status not in CLOSING_STATUSES:
+        return None
+    if status == "suonato" and gig_date:
+        return gig_date
+    return ts
+
+
+def scrivi_gig_nuova(conn, loc_id, data):
+    """La parte di create_gig che scrive, senza commit: la usa anche la
+    chiusura di un compito, che deve scrivere tutto o niente. I controlli
+    (palco, stato, data) li ha gia' fatti chi la chiama."""
     ts = now_iso()
     # Ricominciare chiude il tentativo rimasto in sospeso: di aperta ce n'e'
     # una sola per volta, ed e' quella che il palco mostra come stato.
@@ -3098,18 +3693,64 @@ def create_gig(conn, ws, loc_id, body):
     )
     fields = ["location_id"] + list(data.keys()) + ["closed_at", "created_at", "updated_at"]
     values = [loc_id] + list(data.values()) + [
-        ts if data["status"] in CLOSING_STATUSES else None, ts, ts,
+        data_di_chiusura(data["status"], data.get("gig_date"), ts), ts, ts,
     ]
     placeholders = ",".join("?" for _ in fields)
-    conn.execute(f"INSERT INTO gigs ({','.join(fields)}) VALUES ({placeholders})", values)
+    gig_id = conn.execute(
+        f"INSERT INTO gigs ({','.join(fields)}) VALUES ({placeholders})", values
+    ).lastrowid
+    # Aprire un'opportunita' su un Lead lo fa Prospect (24 settembre 2026,
+    # chiesto da Stefano): un Lead e' un indirizzo che nessuno ha ancora
+    # guardato, e se ci stai provando qualcuno l'ha guardato. E' il secondo
+    # automatismo dopo Cliente, e come quello va in un verso solo: chiudere
+    # o cancellare l'opportunita' non lo rimette Lead. Tocca solo i Lead —
+    # un Inattivo che riprovi resta com'e', lo sposti tu — e mai l'archivio.
+    conn.execute(
+        "UPDATE locations SET status = ?, updated_at = ? WHERE id = ? AND status = ?",
+        ("prospect", ts, loc_id, LEAD_STATUS),
+    )
     refresh_location_status(conn, loc_id)
     # Qui ci stava una riga che, aprendo una stagione senza promemoria, ne
     # scriveva uno con la data di oggi: serviva solo a non far sparire il
     # palco dall'Agenda, che allora erano due elenchi con due criteri
     # diversi. Adesso l'elenco e' uno e va a periodo: aprire una serata non
     # e' dire quando ririchiamarli, e l'app non lo scrive al posto tuo.
-    conn.commit()
-    return fetch_location(conn, ws, loc_id)
+    return gig_id
+
+
+def scrivi_gig_aggiornata(conn, loc_id, gig_id, data):
+    """La parte di update_gig che scrive la serata, senza commit (vedi
+    scrivi_gig_nuova). Il controllo sulla data di un Confermato sta qui
+    dentro perche' guarda la riga com'e' adesso."""
+    before = conn.execute("SELECT * FROM gigs WHERE id = ?", (gig_id,)).fetchone()
+    # La riga come sara' dopo: chi manda solo lo stato lascia in piedi la
+    # data che c'era, chi manda solo la data lascia in piedi lo stato.
+    require_gig_date_if_confirmed(
+        data.get("status", before["status"]),
+        data["gig_date"] if "gig_date" in data else before["gig_date"],
+    )
+    if data:
+        # La chiusura si muove solo se cambia com'e' finita (o, per una
+        # suonata, la sua data). Il pannello rimanda lo stato a ogni
+        # salvataggio: prima bastava correggere il compenso per spostarla a
+        # oggi, e l'ordine delle Chiuse diceva una cosa falsa.
+        if "status" in data or "gig_date" in data:
+            nuovo = data.get("status", before["status"])
+            quando = data["gig_date"] if "gig_date" in data else before["gig_date"]
+            if nuovo == "suonato" and quando:
+                data["closed_at"] = quando
+            elif nuovo == before["status"] and (before["closed_at"] or nuovo not in CLOSING_STATUSES):
+                # Stesso stato: la chiusura resta com'era — anche quella di
+                # un tentativo chiuso perche' ne e' stato aperto un altro.
+                data["closed_at"] = before["closed_at"]
+            else:
+                data["closed_at"] = data_di_chiusura(nuovo, quando, now_iso())
+        data["updated_at"] = now_iso()
+        set_clause = ",".join(f"{k} = ?" for k in data.keys())
+        conn.execute(
+            f"UPDATE gigs SET {set_clause} WHERE id = ?", list(data.values()) + [gig_id]
+        )
+        refresh_location_status(conn, loc_id)
 
 
 def gig_location_id(conn, ws, gig_id):
@@ -3129,23 +3770,8 @@ def update_gig(conn, ws, gig_id, body):
     ririchiamarli sono una cosa sola, e farne due chiamate lascerebbe la
     serata chiusa senza promemoria se la seconda fallisce."""
     loc_id = gig_location_id(conn, ws, gig_id)
-    before = conn.execute("SELECT * FROM gigs WHERE id = ?", (gig_id,)).fetchone()
     data = clean_gig_payload(body, partial=True)
-    # La riga come sara' dopo: chi manda solo lo stato lascia in piedi la
-    # data che c'era, chi manda solo la data lascia in piedi lo stato.
-    require_gig_date_if_confirmed(
-        data.get("status", before["status"]),
-        data["gig_date"] if "gig_date" in data else before["gig_date"],
-    )
-    if data:
-        if "status" in data:
-            data["closed_at"] = now_iso() if data["status"] in CLOSING_STATUSES else None
-        data["updated_at"] = now_iso()
-        set_clause = ",".join(f"{k} = ?" for k in data.keys())
-        conn.execute(
-            f"UPDATE gigs SET {set_clause} WHERE id = ?", list(data.values()) + [gig_id]
-        )
-        refresh_location_status(conn, loc_id)
+    scrivi_gig_aggiornata(conn, loc_id, gig_id, data)
 
     # Il pannello "Ho suonato" chiede anche quando ririchiamarli, e da li'
     # arriva la data. Nessuno la ricalcola per conto suo: quella scritta e'
@@ -3170,6 +3796,9 @@ def delete_gig(conn, ws, gig_id):
     # dell'anno. Il compenso invece sparisce da solo — non era una riga, era
     # la serata stessa.
     conn.execute("UPDATE notes SET gig_id = NULL WHERE gig_id = ?", (gig_id,))
+    # I compiti di quell'opportunita' restano sul palco: erano cose da
+    # fare li', e continuano a esserlo.
+    conn.execute("UPDATE tasks SET gig_id = NULL WHERE gig_id = ?", (gig_id,))
     conn.execute(
         "UPDATE cash_entries SET gig_id = NULL, updated_at = ? WHERE gig_id = ?",
         (now_iso(), gig_id),
@@ -3247,28 +3876,98 @@ def require_band_member(conn, ws, email):
         raise ApiError(400, "Questa persona non fa parte della band")
 
 
+def loose_tasks(conn, ws):
+    """I compiti della band che non stanno su nessun palco.
+
+    Sono l'unico pezzo di agenda che non ha una scheda dove tornare: quelli
+    di un palco si ritrovano sempre aprendo il palco, questi vivono solo
+    nell'Agenda. Per questo escono tutti, aperti e chiusi, e la pagina
+    decide lei cosa mostrare: se il server desse solo quelli da fare, un
+    compito segnato per sbaglio come fatto non lo ritroverebbe piu' nessuno.
+    """
+    rows = conn.execute(
+        "SELECT * FROM tasks WHERE workspace_id = ? AND location_id IS NULL " + TASK_ORDER,
+        (ws,),
+    ).fetchall()
+    return {"tasks": [task_to_dict(r) for r in rows]}
+
+
 def create_task(conn, ws, loc_id, body):
-    require_location(conn, ws, loc_id)
-    data = clean_task_payload(body or {}, partial=False)
+    """Un compito nuovo. Con loc_id e' di quel palco e la risposta e' il
+    palco aggiornato, come ogni altra scrittura fatta dentro una scheda;
+    senza, e' della band e la risposta e' l'elenco dei compiti sciolti."""
+    body = body or {}
+    gig_id = None
+    if body.get("gig_id"):
+        # Il compito di un'opportunita': il palco e' il suo, e se ne arriva
+        # anche uno deve essere quello.
+        gig_id = int(body["gig_id"])
+        gig_loc = opportunita_aperta_del_compito(conn, ws, gig_id)
+        if loc_id is not None and int(loc_id) != gig_loc:
+            raise ApiError(400, "Questa opportunità è di un altro palco")
+        loc_id = gig_loc
+    if loc_id is not None:
+        require_location(conn, ws, loc_id)
+    data = clean_task_payload(body, partial=False)
     require_band_member(conn, ws, data.get("assignee_email"))
-    ts = now_iso()
-    fields = ["location_id"] + list(data.keys()) + ["created_at", "updated_at"]
-    values = [loc_id] + list(data.values()) + [ts, ts]
-    placeholders = ",".join("?" for _ in fields)
-    conn.execute(f"INSERT INTO tasks ({','.join(fields)}) VALUES ({placeholders})", values)
+    scrivi_compito(conn, ws, loc_id, data, gig_id=gig_id)
     conn.commit()
-    return fetch_location(conn, ws, loc_id)
+    return fetch_location(conn, ws, loc_id) if loc_id is not None else loose_tasks(conn, ws)
+
+
+def opportunita_aperta_del_compito(conn, ws, gig_id):
+    """Il palco di un'opportunita' a cui si vuole attaccare un compito. Solo
+    le aperte: su una gia' chiusa non c'e' piu' niente da fare, e il compito
+    dopo si scrive sul palco."""
+    row = conn.execute(
+        "SELECT g.location_id, g.closed_at FROM gigs g JOIN locations l ON l.id = g.location_id "
+        "WHERE g.id = ? AND l.workspace_id = ?",
+        (gig_id, ws),
+    ).fetchone()
+    if not row:
+        raise ApiError(404, "Opportunità non trovata")
+    if row["closed_at"]:
+        raise ApiError(400, "Questa opportunità è chiusa: il compito scrivilo sul palco")
+    return row["location_id"]
+
+
+def scrivi_compito(conn, ws, loc_id, data, follows_task_id=None, gig_id=None):
+    """La parte di create_task che scrive, senza commit. follows_task_id e'
+    il compito da cui questo nasce, quando nasce dalla chiusura di un
+    altro."""
+    ts = now_iso()
+    fields = (["location_id", "workspace_id", "follows_task_id", "gig_id"] + list(data.keys())
+              + ["created_at", "updated_at"])
+    values = [loc_id, ws, follows_task_id, gig_id] + list(data.values()) + [ts, ts]
+    placeholders = ",".join("?" for _ in fields)
+    return conn.execute(
+        f"INSERT INTO tasks ({','.join(fields)}) VALUES ({placeholders})", values
+    ).lastrowid
 
 
 def task_location_id(conn, ws, task_id):
+    """Su quale palco sta questo compito — None se non sta su nessuno.
+
+    Le due strade per arrivarci sono due perche' sono due i modi di
+    appartenere a una band: il compito di un palco ci appartiene tramite il
+    palco (ed e' li' che si controlla il permesso, come sempre), quello
+    sciolto tramite il suo workspace_id.
+    """
     row = conn.execute(
-        "SELECT t.location_id FROM tasks t JOIN locations l ON l.id = t.location_id "
-        "WHERE t.id = ? AND l.workspace_id = ?",
-        (task_id, ws),
+        "SELECT t.location_id FROM tasks t "
+        "LEFT JOIN locations l ON l.id = t.location_id "
+        "WHERE t.id = ? AND ("
+        "  l.workspace_id = ? OR (t.location_id IS NULL AND t.workspace_id = ?)"
+        ")",
+        (task_id, ws, ws),
     ).fetchone()
     if not row:
         raise ApiError(404, "Compito non trovato")
     return row["location_id"]
+
+
+def task_response(conn, ws, loc_id):
+    return fetch_location(conn, ws, loc_id) if loc_id is not None else loose_tasks(conn, ws)
 
 
 def update_task(conn, ws, task_id, body):
@@ -3283,14 +3982,215 @@ def update_task(conn, ws, task_id, body):
             f"UPDATE tasks SET {set_clause} WHERE id = ?", list(data.values()) + [task_id]
         )
         conn.commit()
-    return fetch_location(conn, ws, loc_id)
+    return task_response(conn, ws, loc_id)
+
+
+# Gli stati da cui puo' partire un'opportunita' aperta chiudendo un
+# compito. Una gia' chiusa (rifiutata, suonato, annullato) non si apre: e'
+# una cosa che si scrive su un'opportunita' che c'e', non una che nasce.
+TASK_CLOSE_NEW_GIG_STATUSES = {"contattato", "trattativa", "confermato"}
+
+# La riga nello storico scritta chiudendo un compito c'e', ma per ora e'
+# spenta (24 settembre 2026): Stefano non e' convinto di una riga messa li'
+# da sola, e ha chiesto di tenerla da parte senza toglierla. Spenta, la
+# chiusura non chiede il tipo e non scrive niente nello storico, qualunque
+# cosa arrivi da un'app vecchia. Per riaccenderla: True qui e
+# CHIUSURA_CON_STORICO nella pagina.
+TASK_CLOSE_WRITES_HISTORY = False
+
+
+def close_task(conn, ws, task_id, body, email=None):
+    """Salvare un compito dal suo modulo — e se lo chiudi, quello che ne
+    segue.
+
+    Dal 25 settembre 2026 il modulo e' uno solo: si apre toccando il compito
+    (con lo stato che ha) o scorrendolo (con Fatto o Declinato gia' scelti),
+    e in tutti e due i casi porta descrizione, stato, scadenza, chi lo fa e
+    i due interruttori del compito dopo e dell'opportunita'. Per questo qui
+    lo stato puo' essere anche Da fare, il compito puo' essere gia' chiuso
+    (lo si corregge o lo si riapre), e il compito nuovo e l'opportunita'
+    valgono anche senza chiudere niente.
+
+    Chiudere un compito come Fatto o Declinato, e quello che ne segue:
+    la riga nello storico del palco, l'opportunita' aperta o aggiornata, il
+    compito dopo e la data di ricontatto. Tutto in una chiamata sola e in
+    una transazione sola: mai un compito fatto senza il richiamo che avevi
+    acceso perche' la seconda chiamata e' caduta.
+
+    Prima si controlla tutto, poi si scrive: un errore qualunque risponde
+    senza aver lasciato niente a meta'. La regola di cosa si puo' chiedere
+    su quale compito e' la tabella delle varianti della specifica:
+    storico e opportunita' solo con Fatto su un palco, il compito nuovo
+    sempre, la data di ricontatto solo su un palco.
+
+    Le scritture sono le stesse delle rotte di sempre (scrivi_gig_nuova,
+    scrivi_gig_aggiornata, scrivi_nota, scrivi_compito): nessuna regola
+    nuova sulle serate o sullo storico nasce qui."""
+    body = body or {}
+    loc_id = task_location_id(conn, ws, task_id)
+    task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+
+    status = body.get("status")
+    if status not in TASK_STATUS_VALUES:
+        raise ApiError(400, "Stato del compito non valido")
+    fatto_su_palco = status == "fatto" and loc_id is not None
+    # Lo storico si scrive solo nel momento in cui il compito diventa Fatto:
+    # risalvare un compito gia' fatto non deve scrivere un'altra riga.
+    diventa_fatto = fatto_su_palco and task["status"] != "fatto"
+    # Descrizione e chi lo fa arrivano dal modulo; senza, restano com'erano.
+    descrizione = task["description"]
+    if "description" in body:
+        descrizione = (body.get("description") or "").strip()
+        if not descrizione:
+            raise ApiError(400, "Scrivi cosa c’è da fare")
+    assegnato = task["assignee_email"]
+    if "assignee_email" in body:
+        assegnato = (body.get("assignee_email") or "").strip().lower() or None
+        require_band_member(conn, ws, assegnato)
+    # La scadenza si puo' correggere chiudendo (25 settembre 2026): il
+    # pannellino la fa vedere, e chi ha fatto la telefonata un giorno diverso
+    # da quello scritto la sistema li'. Senza il campo resta com'e'.
+    due_date = task["due_date"]
+    if "due_date" in body:
+        due_date = (body.get("due_date") or "").strip() or None
+        if due_date and not valid_next_contact_date(due_date):
+            raise ApiError(400, "Scadenza non valida")
+    con_storico = diventa_fatto and TASK_CLOSE_WRITES_HISTORY
+    close_note = (body.get("close_note") or "").strip() or None if status == "declinato" else None
+
+    # --- storico
+    activity = body.get("activity") if diventa_fatto else None
+    if body.get("activity") and not fatto_su_palco:
+        raise ApiError(400, "Lo storico si scrive solo chiudendo come fatto un compito di un palco")
+    if con_storico:
+        if not isinstance(activity, dict):
+            raise ApiError(400, "Scegli cosa registrare nello storico del palco")
+        kind = (activity.get("kind") or "").strip()
+        if kind not in NOTE_KINDS:
+            raise ApiError(400, "Tipo di attività non valido")
+        # Niente Noi/Loro: un compito lo facciamo noi. La nota non ha verso.
+        direction = None if kind == "nota" else NOTE_DIRECTION_DEFAULT
+        text = (activity.get("text") or "").strip()
+        if not text:
+            text = ("Fatto: «" + task["description"] + "»") if kind == "nota" \
+                else NOTE_KIND_LABELS.get(kind, "")
+
+    # --- opportunita'
+    opp = body.get("opportunity")
+    # L'opportunita' vale su un compito di un palco, da fare o fatto; con
+    # Declinato no: il contatto non c'e' stato.
+    if opp and (loc_id is None or status == "declinato"):
+        raise ApiError(400, "L'opportunità si apre solo da un compito di un palco, non declinato")
+    gig_aperta = None
+    if opp:
+        if not isinstance(opp, dict):
+            raise ApiError(400, "Opportunità non valida")
+        corrente = current_gig_row(conn, loc_id)
+        gig_aperta = corrente if (corrente is not None and corrente["closed_at"] is None) else None
+        # Il pannellino dice quale opportunita' aperta vedeva. Se nel
+        # frattempo un altro della band ne ha aperta o chiusa una, scrivere
+        # vorrebbe dire chiudere quella sua di nascosto, o aggiornare quella
+        # sbagliata: meglio fermarsi e far ridisegnare il pannellino.
+        vista = opp.get("expect_open_gig_id")
+        if (gig_aperta["id"] if gig_aperta else None) != (int(vista) if vista else None):
+            raise ApiError(
+                409,
+                "Nel frattempo l'opportunità di questo palco è cambiata: ricontrolla e conferma di nuovo.",
+                "opportunita_cambiata",
+            )
+        dati_gig = clean_gig_payload(
+            {k: opp[k] for k in ("status", "gig_date", "fee") if k in opp}, partial=True
+        )
+        dati_gig.setdefault("status", "contattato")
+        if gig_aperta is None:
+            if dati_gig["status"] not in TASK_CLOSE_NEW_GIG_STATUSES:
+                raise ApiError(400, "Un'opportunità nuova non può nascere già chiusa")
+            require_gig_date_if_confirmed(dati_gig["status"], dati_gig.get("gig_date"))
+        else:
+            # Aggiornando, una data lasciata vuota vuol dire "quella che
+            # c'era", non "toglila": il pannellino non fa vedere la vecchia.
+            # Il compenso invece il modulo lo fa vedere (25 settembre 2026),
+            # quindi arriva sempre com'e': svuotato vuol dire toglierlo.
+            if not dati_gig.get("gig_date"):
+                dati_gig.pop("gig_date", None)
+            if "fee" not in opp:
+                dati_gig.pop("fee", None)
+
+    # --- compito nuovo
+    nuovo = body.get("next_task")
+    dati_nuovo = None
+    aggiorna_ricontatto = False
+    if nuovo:
+        if not isinstance(nuovo, dict):
+            raise ApiError(400, "Compito nuovo non valido")
+        dati_nuovo = clean_task_payload(
+            {k: nuovo[k] for k in ("description", "due_date", "assignee_email") if k in nuovo},
+            partial=False,
+        )
+        dati_nuovo["status"] = TASK_TODO
+        if dati_nuovo.get("due_date") and not valid_next_contact_date(dati_nuovo["due_date"]):
+            raise ApiError(400, "Scadenza non valida")
+        require_band_member(conn, ws, dati_nuovo.get("assignee_email"))
+        if nuovo.get("update_next_contact"):
+            if loc_id is None:
+                raise ApiError(400, "Un compito senza palco non ha una data di ricontatto")
+            # Senza una data non c'e' niente da scrivere: l'app l'interruttore
+            # non lo fa nemmeno vedere.
+            aggiorna_ricontatto = bool(dati_nuovo.get("due_date"))
+
+    # --- da qui si scrive, e si scrive tutto o niente
+    try:
+        ts = now_iso()
+        conn.execute(
+            "UPDATE tasks SET status = ?, close_note = ?, due_date = ?, description = ?, "
+            "assignee_email = ?, updated_at = ? WHERE id = ?",
+            (status, close_note, due_date, descrizione, assegnato, ts, task_id),
+        )
+        gig_toccata = None
+        if opp:
+            if gig_aperta is None:
+                gig_id = scrivi_gig_nuova(conn, loc_id, dati_gig)
+                gig_toccata = gig_id
+                # La nascita si scrive solo aprendola: aggiornare un'opportunita'
+                # che c'era gia' non la fa nascere da questo compito.
+                conn.execute("UPDATE gigs SET from_task_id = ? WHERE id = ?", (task_id, gig_id))
+            else:
+                scrivi_gig_aggiornata(conn, loc_id, gig_aperta["id"], dati_gig)
+                gig_toccata = gig_aperta["id"]
+        # Lo storico dopo l'opportunita': scrivi_nota si attacca a quella
+        # aperta in questo momento, quindi anche a quella appena nata.
+        if con_storico:
+            scrivi_nota(conn, loc_id, kind, direction, text, email, ts, ts, task_id=task_id)
+        if dati_nuovo:
+            # Il compito nuovo sta sull'opportunita' che il pannellino ha
+            # appena aperto o aggiornato; se non ne ha toccata nessuna, su
+            # quella del compito chiuso. In tutti e due i casi solo se e'
+            # ancora aperta: un «Rifiutata» appena scritto non ha un dopo, e
+            # il richiamo dell'anno prossimo e' del palco.
+            candidata = gig_toccata or task["gig_id"]
+            gig_nuovo = None
+            if candidata:
+                riga = conn.execute("SELECT closed_at FROM gigs WHERE id = ?", (candidata,)).fetchone()
+                if riga and riga["closed_at"] is None:
+                    gig_nuovo = candidata
+            scrivi_compito(conn, ws, loc_id, dati_nuovo, follows_task_id=task_id, gig_id=gig_nuovo)
+        if aggiorna_ricontatto:
+            conn.execute(
+                "UPDATE locations SET next_contact_date = ?, updated_at = ? WHERE id = ?",
+                (dati_nuovo["due_date"], ts, loc_id),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return task_response(conn, ws, loc_id)
 
 
 def delete_task(conn, ws, task_id):
     loc_id = task_location_id(conn, ws, task_id)
     conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
     conn.commit()
-    return fetch_location(conn, ws, loc_id)
+    return task_response(conn, ws, loc_id)
 
 
 # ------------------------------------------------------------------ cassa --
@@ -3847,6 +4747,25 @@ def add_note(conn, ws, loc_id, body, email=None):
         raise ApiError(400, "Il testo della nota è obbligatorio")
     require_location(conn, ws, loc_id)
     ts = now_iso()
+    # Il messaggio e l'email partono da un'altra app, e al ritorno non si sa
+    # se sono partiti davvero: capita di toccare di nuovo il pulsante senza
+    # aver mandato niente la prima volta (1 ottobre 2026). Se lo stesso invio
+    # e' gia' nel diario da meno di dieci minuti, non lo si riscrive: basta
+    # una riga per un messaggio. Solo per gli invii dai pulsanti — chi segna
+    # a mano un secondo messaggio lo vuole davvero — e non quando il giorno
+    # lo scrivi tu, che e' un ricordo e non un tocco ripetuto.
+    if (body.get("invio") and kind in NOTE_INVII_SENZA_DOPPIONI and direction == "noi"
+            and not (body.get("date") or "").strip()):
+        da = (datetime.now(timezone.utc) - NOTE_INVIO_FINESTRA).isoformat()
+        gia = conn.execute(
+            "SELECT 1 FROM notes WHERE location_id = ? AND kind = ? AND direction = ? "
+            "AND created_at >= ? AND created_at <= ? LIMIT 1",
+            (loc_id, kind, direction, da, ts),
+        ).fetchone()
+        if gia:
+            loc = fetch_location(conn, ws, loc_id)
+            loc["invio_gia_registrato"] = True
+            return loc
     # Il giorno si puo' scrivere: una telefonata di venerdi' segnata il
     # lunedi' deve restare di venerdi'. Tutto il resto (updated_at, la
     # serata che avanza) resta a adesso, che e' quando e' successo davvero.
@@ -3855,17 +4774,7 @@ def add_note(conn, ws, loc_id, body, email=None):
     # serata e' aperta adesso: appiccicarla all'ultima stagione chiusa vorrebbe
     # dire far comparire una telefonata di quest'anno sotto la serata
     # dell'anno scorso.
-    gig = current_gig_row(conn, loc_id)
-    aperta = gig if (gig is not None and gig["closed_at"] is None) else None
-    # Chi l'ha segnata: in una band in cui scrivono in tre, "chiamato" senza
-    # un nome accanto non dice a chi chiedere com'e' andata. Si prende dalla
-    # sessione e non dal corpo della richiesta: e' un fatto, non un campo.
-    nota_id = conn.execute(
-        "INSERT INTO notes (location_id, gig_id, kind, direction, text, created_by, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (loc_id, aperta["id"] if aperta else None, kind, direction, text, email, quando),
-    ).lastrowid
-    conn.execute("UPDATE locations SET updated_at = ? WHERE id = ?", (ts, loc_id))
+    scrivi_nota(conn, loc_id, kind, direction, text, email, quando, ts)
     # Qui un'attivita' registrata faceva avanzare la serata aperta da
     # "opportunita'" a "contattato". Tolto quello stato (22 settembre 2026)
     # una serata nasce gia' contattata e non c'e' piu' niente da avanzare:
@@ -3874,6 +4783,26 @@ def add_note(conn, ws, loc_id, body, email=None):
     # stato il suo posto.
     conn.commit()
     return fetch_location(conn, ws, loc_id)
+
+
+def scrivi_nota(conn, loc_id, kind, direction, text, email, quando, ts, task_id=None):
+    """La parte di add_note che scrive, senza commit: la usa anche la
+    chiusura di un compito. task_id e' il compito da cui arriva la riga,
+    quando arriva da li'."""
+    # L'attivita' si lega alla serata aperta *adesso*: chiamata dopo aver
+    # aperto un'opportunita', si attacca a quella appena nata.
+    gig = current_gig_row(conn, loc_id)
+    aperta = gig if (gig is not None and gig["closed_at"] is None) else None
+    # Chi l'ha segnata: in una band in cui scrivono in tre, "chiamato" senza
+    # un nome accanto non dice a chi chiedere com'e' andata. Si prende dalla
+    # sessione e non dal corpo della richiesta: e' un fatto, non un campo.
+    nota_id = conn.execute(
+        "INSERT INTO notes (location_id, gig_id, kind, direction, text, created_by, "
+        "created_at, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (loc_id, aperta["id"] if aperta else None, kind, direction, text, email, quando, task_id),
+    ).lastrowid
+    conn.execute("UPDATE locations SET updated_at = ? WHERE id = ?", (ts, loc_id))
+    return nota_id
 
 
 def note_created_at(giorno, riferimento=None):
@@ -4952,6 +5881,92 @@ def _facebook_json(page_id):
         return json.load(resp)
 
 
+# LinkedIn, come Instagram, la foto la mette nell'og:image della pagina
+# pubblica del profilo, e la manda a chi si presenta col suo nome: con lo
+# stesso GigFlowBot di Instagram risponde, a Python-urllib senza nome no
+# (provato il 24 settembre 2026). La foto e' 200x200, firmata come quelle
+# di Instagram: una misura diversa non si puo' chiedere.
+#
+# Ma col nostro nome la foto arriva solo per i profili famosi. Per una
+# persona qualunque — un art director, cioe' il caso vero — LinkedIn
+# risponde 999 a tutti tranne che ai programmi che fanno le anteprime dei
+# link nelle chat: a WhatsApp e a Telegram la stessa pagina la da', con la
+# foto (provato il 24 settembre 2026 su un profilo pubblico normale: 999 a
+# GigFlowBot e a un browser, 200 a WhatsApp e a Telegram). Per Instagram
+# presentarsi come un altro si era scartato perche' valeva cinquanta pixel;
+# qui vale la differenza fra funzionare e non funzionare. Per questo si
+# prova prima col nostro nome, e solo se LinkedIn dice di no ci si presenta
+# come l'anteprima di Telegram: il giorno che LinkedIn chiude anche quella
+# porta, tornano i 999 e il messaggio d'errore di sempre.
+#
+# Quello che non si puo' sapere e' perche' dice di no. Un profilo che non
+# esiste, uno visibile solo a chi ha un account e LinkedIn che frena chi
+# chiede troppo spesso rispondono tutti col suo 999, e da fuori sono la
+# stessa cosa.
+LI_ANTEPRIMA_UA = "TelegramBot (like TwitterBot)"
+LI_HOSTS = ("linkedin.com",)
+# /in/ e' una persona, /company/ un'azienda: l'agenzia di un art director e'
+# una pagina aziendale, e il suo logo e' una faccia come un'altra.
+LI_TIPI = ("in", "company")
+LI_SLUG_OK = re.compile(r"^[A-Za-z0-9\-_%.]{2,100}$")
+
+
+def linkedin_profilo(url):
+    """L'indirizzo pulito di un profilo o di una pagina aziendale LinkedIn,
+    da qualunque forma in cui e' stato incollato: con o senza https, con
+    www., it. o m. davanti, con ?originalSubdomain=it o /details/... in coda.
+    None per tutto il resto — un post, un'offerta di lavoro, un altro sito."""
+    if not url:
+        return None
+    testo = url.strip()
+    if not re.match(r"^https?://", testo, re.I):
+        testo = "https://" + testo
+    try:
+        parti = urlparse(testo)
+    except ValueError:
+        return None
+    host = (parti.netloc or "").lower().split(":")[0]
+    if not (host in LI_HOSTS or any(host.endswith("." + h) for h in LI_HOSTS)):
+        return None
+    segmenti = [x for x in (parti.path or "").split("/") if x]
+    if len(segmenti) < 2 or segmenti[0].lower() not in LI_TIPI:
+        return None
+    if not LI_SLUG_OK.match(segmenti[1]):
+        return None
+    # Senza la barra in fondo: con la barra LinkedIn risponde prima con un
+    # rimando all'indirizzo senza, ed e' un giro in piu' per niente.
+    return "https://www.linkedin.com/%s/%s" % (segmenti[0].lower(), segmenti[1])
+
+
+def _linkedin_pic_url(profilo):
+    """L'immagine del profilo LinkedIn, o None se la pagina non ne ha una.
+    Chi non ha mai messo una foto ha come og:image la sagoma grigia, che
+    sta sul CDN statico (static.licdn.com) e non su quello delle foto vere:
+    quella non vale come faccia."""
+    pagina = None
+    for ua in (IG_CRAWLER_UA, LI_ANTEPRIMA_UA):
+        req = urllib.request.Request(
+            profilo,
+            headers={"User-Agent": ua, "Accept": "text/html,*/*",
+                     "Accept-Language": "it-IT,it;q=0.9"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                pagina = resp.read(1500000).decode("utf-8", "ignore")
+            break
+        except urllib.error.HTTPError as e:
+            # Il 999 e' il "no" di LinkedIn: vale la pena riprovare. Un 404
+            # o un 410 invece dicono che il profilo non c'e', per chiunque.
+            if e.code != 999 or ua == LI_ANTEPRIMA_UA:
+                raise
+    trovato = IG_OG_RE.search(pagina)
+    if not trovato:
+        return None
+    foto = html.unescape(trovato.group(1))
+    host = (urlparse(foto).netloc or "").lower().split(":")[0]
+    return foto if host == "media.licdn.com" else None
+
+
 def _facebook_pic_url(page_id):
     """L'indirizzo della foto del profilo di una pagina Facebook, o None se
     Facebook non la da'. Succede per i link nella forma profile.php?id=...:
@@ -4986,7 +6001,7 @@ def _facebook_pic_url(page_id):
 
 
 def scarica_immagine_social(url):
-    """Da un link a una pagina Facebook o a un profilo Instagram torna
+    """Da un link a una pagina Facebook o a un profilo Instagram o LinkedIn torna
     l'immagine del profilo, gia' scaricata: (byte, estensione).
 
     Sta per conto suo perche' la chiedono in due — la copertina di un palco e
@@ -4995,7 +6010,8 @@ def scarica_immagine_social(url):
     pesare. Scritte una volta sola non possono divergere."""
     page_id = facebook_page_id(url)
     ig_user = None if page_id else instagram_username(url)
-    if not page_id and not ig_user:
+    li_profilo = None if page_id or ig_user else linkedin_profilo(url)
+    if not page_id and not ig_user and not li_profilo:
         if facebook_link_non_pagina(url):
             raise ApiError(
                 400,
@@ -5006,7 +6022,7 @@ def scarica_immagine_social(url):
             )
         raise ApiError(
             400,
-            "Questo link non e' una pagina Facebook ne' un profilo Instagram",
+            "Questo link non e' una pagina Facebook, ne' un profilo Instagram o LinkedIn",
             "non_social",
         )
 
@@ -5025,6 +6041,23 @@ def scarica_immagine_social(url):
             )
         if not foto_url:
             raise ApiError(404, "Questa pagina non ha un'immagine del profilo", "senza_foto")
+    elif li_profilo:
+        try:
+            foto_url = _linkedin_pic_url(li_profilo)
+        except urllib.error.HTTPError as e:
+            if e.code in (404, 410):
+                raise ApiError(404, "LinkedIn non trova questo profilo", "pagina_sparita")
+            raise ApiError(
+                502,
+                "LinkedIn non ha dato la foto: o il profilo è visibile solo a chi "
+                "ha un account, o per ora non risponde. Riprova più tardi, "
+                "oppure caricane una dal telefono.",
+                "rete",
+            )
+        except Exception:
+            raise ApiError(502, "LinkedIn non risponde, riprova fra poco", "rete")
+        if not foto_url:
+            raise ApiError(404, "Questo profilo LinkedIn non ha una foto", "senza_foto")
     else:
         try:
             foto_url = _instagram_pic_url(ig_user)
@@ -5049,7 +6082,8 @@ def scarica_immagine_social(url):
     # questo server: si scarica solo da dove ci si aspetta.
     host = (urlparse(foto_url).netloc or "").lower().split(":")[0]
     if not (host.endswith(".fbcdn.net") or host.endswith(".facebook.com")
-            or host.endswith(".cdninstagram.com") or host.endswith(".instagram.com")):
+            or host.endswith(".cdninstagram.com") or host.endswith(".instagram.com")
+            or host == "media.licdn.com"):
         raise ApiError(502, "Il social ha risposto con un indirizzo inatteso")
 
     try:
@@ -5200,7 +6234,8 @@ def update_art_director(conn, ws, ad_id, body):
 
 
 def art_director_social_photo(conn, ws, ad_id, body=None):
-    """La foto dell'art director, presa dal suo profilo Facebook o Instagram.
+    """La foto dell'art director, presa dal suo profilo Facebook, Instagram
+    o LinkedIn.
 
     Ne tiene una sola: quella di prima viene cancellata dal disco appena
     arriva la nuova, se no la cartella si riempirebbe di facce vecchie che
@@ -5211,13 +6246,14 @@ def art_director_social_photo(conn, ws, ad_id, body=None):
     dell'indirizzo salvato — magari di un'altra persona — sarebbe difficile
     da spiegare."""
     row = conn.execute(
-        "SELECT facebook, instagram, photo FROM art_directors WHERE id = ? AND workspace_id = ?",
+        "SELECT facebook, instagram, linkedin, photo FROM art_directors "
+        "WHERE id = ? AND workspace_id = ?",
         (ad_id, ws),
     ).fetchone()
     if not row:
         raise ApiError(404, "Art director non trovato")
 
-    url = (body or {}).get("url") or row["facebook"] or row["instagram"]
+    url = (body or {}).get("url") or row["facebook"] or row["instagram"] or row["linkedin"]
     raw, ext = scarica_immagine_social(url)
     return scrivi_faccia_ad(conn, ws, ad_id, raw, ext, row["photo"])
 
@@ -5459,107 +6495,158 @@ def switch_workspace(conn, ctx, ws_id):
     return fetch_workspaces_for(conn, ctx.email, ws_id)
 
 
-def fetch_wa_templates(conn, ws):
+# --- modelli WhatsApp ed email ----------------------------------------------
+#
+# Ogni modello ha un proprietario — chi l'ha scritto — e un interruttore:
+# pubblico lo vedono e lo usano tutti quelli della band, privato solo lui.
+# Quelli nati con la band (seed_workspace_defaults) non hanno proprietario:
+# sono di tutti, restano pubblici e l'interruttore per loro non c'e'.
+#
+# Modificare, cancellare e cambiare la visibilita' spetta solo al
+# proprietario. "Usabile da tutti" vuol dire che gli altri lo mandano, non
+# che lo riscrivono: un modello pubblico che chiunque puo' cambiare sarebbe
+# un modello che il suo autore ritrova diverso senza sapere da chi. I
+# modelli senza proprietario si modificano come prima, da chiunque possa
+# scrivere nella band.
+
+def _template_visibili(conn, tabella, ws, email):
     rows = conn.execute(
-        "SELECT * FROM wa_templates WHERE workspace_id = ? ORDER BY id ASC", (ws,)
+        f"SELECT t.*, p.name AS owner_name FROM {tabella} t "
+        "LEFT JOIN user_profiles p ON p.email = t.owner_email "
+        "WHERE t.workspace_id = ? AND (t.is_public = 1 OR t.owner_email IS NULL "
+        "  OR t.owner_email = ?) ORDER BY t.id ASC",
+        (ws, email or ""),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [_template_dict(r, email) for r in rows]
 
 
-def create_wa_template(conn, ws, body):
-    name = (body.get("name") or "").strip()
-    message = (body.get("message") or "").strip()
-    if not name:
-        raise ApiError(400, "Il nome è obbligatorio")
-    ts = now_iso()
-    cur = conn.execute(
-        "INSERT INTO wa_templates (name, message, workspace_id, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (name, message, ws, ts, ts),
-    )
-    conn.commit()
-    return dict(conn.execute("SELECT * FROM wa_templates WHERE id = ?", (cur.lastrowid,)).fetchone())
+def _template_dict(row, email):
+    d = dict(row)
+    d["is_public"] = bool(d.get("is_public"))
+    # mine: e' tuo e puoi deciderne tutto. editable: lo puoi modificare —
+    # tuo, oppure di nessuno. L'app li legge da qui invece di confrontare
+    # email per conto suo: la regola sta in un posto solo.
+    d["mine"] = bool(email) and d.get("owner_email") == email
+    d["editable"] = d["mine"] or not d.get("owner_email")
+    return d
 
 
-def update_wa_template(conn, ws, template_id, body):
-    existing = conn.execute(
-        "SELECT id FROM wa_templates WHERE id = ? AND workspace_id = ?", (template_id, ws)
+def _template_da_scrivere(conn, tabella, ws, email, template_id):
+    """Il modello che si vuole cambiare o cancellare, se chi chiama puo'.
+    Un modello privato di un altro risponde 404 come se non ci fosse: per
+    chi non lo vede, non c'e'."""
+    row = conn.execute(
+        f"SELECT * FROM {tabella} WHERE id = ? AND workspace_id = ?", (template_id, ws)
     ).fetchone()
-    if not existing:
+    if not row or (row["owner_email"] and not row["is_public"] and row["owner_email"] != email):
         raise ApiError(404, "Modello non trovato")
+    if row["owner_email"] and row["owner_email"] != email:
+        raise ApiError(403, "Questo modello lo può cambiare solo chi l'ha scritto")
+    return row
+
+
+def _visibilita_da_body(body, row):
+    """Il valore di is_public da scrivere. Senza proprietario non si tocca:
+    un modello di nessuno reso privato non sarebbe piu' di nessuno."""
+    if not row["owner_email"] or "is_public" not in body:
+        return row["is_public"]
+    return 1 if body.get("is_public") else 0
+
+
+def _template_riletto(conn, tabella, template_id, email):
+    row = conn.execute(
+        f"SELECT t.*, p.name AS owner_name FROM {tabella} t "
+        "LEFT JOIN user_profiles p ON p.email = t.owner_email WHERE t.id = ?",
+        (template_id,),
+    ).fetchone()
+    return _template_dict(row, email)
+
+
+def fetch_wa_templates(conn, ws, email=None):
+    return _template_visibili(conn, "wa_templates", ws, email)
+
+
+def create_wa_template(conn, ws, body, email=None):
     name = (body.get("name") or "").strip()
     message = (body.get("message") or "").strip()
     if not name:
         raise ApiError(400, "Il nome è obbligatorio")
     ts = now_iso()
-    conn.execute(
-        "UPDATE wa_templates SET name = ?, message = ?, updated_at = ? WHERE id = ?",
-        (name, message, ts, template_id),
-    )
-    conn.commit()
-    return dict(conn.execute("SELECT * FROM wa_templates WHERE id = ?", (template_id,)).fetchone())
-
-
-def delete_wa_template(conn, ws, template_id):
+    # Senza login (email None) non c'e' un proprietario da scrivere: il
+    # modello e' di tutti, come quelli della band.
+    pubblico = 1 if not email else (1 if body.get("is_public") else 0)
     cur = conn.execute(
-        "DELETE FROM wa_templates WHERE id = ? AND workspace_id = ?", (template_id, ws)
+        "INSERT INTO wa_templates (name, message, workspace_id, owner_email, is_public, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, message, ws, email, pubblico, ts, ts),
     )
     conn.commit()
-    if cur.rowcount == 0:
-        raise ApiError(404, "Modello non trovato")
+    return _template_riletto(conn, "wa_templates", cur.lastrowid, email)
+
+
+def update_wa_template(conn, ws, template_id, body, email=None):
+    row = _template_da_scrivere(conn, "wa_templates", ws, email, template_id)
+    name = (body.get("name") or "").strip()
+    message = (body.get("message") or "").strip()
+    if not name:
+        raise ApiError(400, "Il nome è obbligatorio")
+    conn.execute(
+        "UPDATE wa_templates SET name = ?, message = ?, is_public = ?, updated_at = ? WHERE id = ?",
+        (name, message, _visibilita_da_body(body, row), now_iso(), template_id),
+    )
+    conn.commit()
+    return _template_riletto(conn, "wa_templates", template_id, email)
+
+
+def delete_wa_template(conn, ws, template_id, email=None):
+    _template_da_scrivere(conn, "wa_templates", ws, email, template_id)
+    conn.execute("DELETE FROM wa_templates WHERE id = ?", (template_id,))
+    conn.commit()
 
 
 # I modelli email sono i modelli WhatsApp piu' l'oggetto: un messaggio senza
 # oggetto in casella di posta e' un messaggio che non viene aperto.
-def fetch_mail_templates(conn, ws):
-    rows = conn.execute(
-        "SELECT * FROM mail_templates WHERE workspace_id = ? ORDER BY id ASC", (ws,)
-    ).fetchall()
-    return [dict(r) for r in rows]
+def fetch_mail_templates(conn, ws, email=None):
+    return _template_visibili(conn, "mail_templates", ws, email)
 
 
-def create_mail_template(conn, ws, body):
+def create_mail_template(conn, ws, body, email=None):
     name = (body.get("name") or "").strip()
     if not name:
         raise ApiError(400, "Il nome è obbligatorio")
     subject = (body.get("subject") or "").strip()
     message = (body.get("message") or "").strip()
     ts = now_iso()
+    pubblico = 1 if not email else (1 if body.get("is_public") else 0)
     cur = conn.execute(
-        "INSERT INTO mail_templates (name, subject, message, workspace_id, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (name, subject, message, ws, ts, ts),
+        "INSERT INTO mail_templates (name, subject, message, workspace_id, owner_email, "
+        "is_public, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (name, subject, message, ws, email, pubblico, ts, ts),
     )
     conn.commit()
-    return dict(conn.execute("SELECT * FROM mail_templates WHERE id = ?", (cur.lastrowid,)).fetchone())
+    return _template_riletto(conn, "mail_templates", cur.lastrowid, email)
 
 
-def update_mail_template(conn, ws, template_id, body):
-    existing = conn.execute(
-        "SELECT * FROM mail_templates WHERE id = ? AND workspace_id = ?", (template_id, ws)
-    ).fetchone()
-    if not existing:
-        raise ApiError(404, "Modello non trovato")
+def update_mail_template(conn, ws, template_id, body, email=None):
+    existing = _template_da_scrivere(conn, "mail_templates", ws, email, template_id)
     name = (body.get("name") or "").strip()
     if not name:
         raise ApiError(400, "Il nome è obbligatorio")
     subject = (body.get("subject") or "").strip() if "subject" in body else existing["subject"]
     message = (body.get("message") or "").strip() if "message" in body else existing["message"]
     conn.execute(
-        "UPDATE mail_templates SET name = ?, subject = ?, message = ?, updated_at = ? WHERE id = ?",
-        (name, subject, message, now_iso(), template_id),
+        "UPDATE mail_templates SET name = ?, subject = ?, message = ?, is_public = ?, "
+        "updated_at = ? WHERE id = ?",
+        (name, subject, message, _visibilita_da_body(body, existing), now_iso(), template_id),
     )
     conn.commit()
-    return dict(conn.execute("SELECT * FROM mail_templates WHERE id = ?", (template_id,)).fetchone())
+    return _template_riletto(conn, "mail_templates", template_id, email)
 
 
-def delete_mail_template(conn, ws, template_id):
-    cur = conn.execute(
-        "DELETE FROM mail_templates WHERE id = ? AND workspace_id = ?", (template_id, ws)
-    )
+def delete_mail_template(conn, ws, template_id, email=None):
+    _template_da_scrivere(conn, "mail_templates", ws, email, template_id)
+    conn.execute("DELETE FROM mail_templates WHERE id = ?", (template_id,))
     conn.commit()
-    if cur.rowcount == 0:
-        raise ApiError(404, "Modello non trovato")
 
 
 def fetch_venue_types(conn, ws):
@@ -6023,9 +7110,9 @@ def export_zip(conn):
 
     fogli.append(("serate.csv", _csv_bytes(
         ["id", "band", "palco_id", "palco", "citta", "stato",
-         "data", "compenso", "note", "chiusa_il", "creata_il"],
+         "data", "compenso", "incassato", "note", "chiusa_il", "creata_il"],
         [(g["id"], g["band"], g["location_id"], g["palco"], g["city"], g["status"],
-          g["gig_date"], g["fee"], g["outcome_note"], g["closed_at"], g["created_at"])
+          g["gig_date"], g["fee"], "sì" if g["fee_paid"] else "no", g["outcome_note"], g["closed_at"], g["created_at"])
          for g in _query(conn,
             "SELECT g.*, l.name AS palco, l.city, w.name AS band FROM gigs g "
             "LEFT JOIN locations l ON l.id = g.location_id "
@@ -6040,7 +7127,9 @@ def export_zip(conn):
          for t in _query(conn,
             "SELECT t.*, l.name AS palco, l.city, w.name AS band FROM tasks t "
             "LEFT JOIN locations l ON l.id = t.location_id "
-            "LEFT JOIN workspaces w ON w.id = l.workspace_id "
+            # Un compito senza palco la band ce l'ha lo stesso, addosso:
+            # senza il COALESCE uscirebbe dall'export con la band vuota.
+            "LEFT JOIN workspaces w ON w.id = COALESCE(l.workspace_id, t.workspace_id) "
             "ORDER BY t.due_date IS NULL, t.due_date ASC, t.id ASC")])))
 
     # In cassa.csv ci sono i movimenti scritti a mano, e basta: i compensi
@@ -6072,8 +7161,14 @@ def export_zip(conn):
             "ORDER BY n.created_at DESC")])))
 
     fogli.append(("art_director.csv", _csv_bytes(
-        ["id", "band", "nome", "telefono", "email", "note", "creato_il"],
-        [(a["id"], a["band"], a["name"], a["phone"], a["email"], a["notes"], a["created_at"])
+        ["id", "band", "nome", "azienda", "indirizzo", "citta", "telefono", "cellulare", "email",
+         "sito", "facebook", "instagram", "linkedin",
+         "azienda_telefono", "azienda_cellulare", "azienda_sito", "azienda_facebook", "azienda_instagram",
+         "note", "creato_il"],
+        [(a["id"], a["band"], a["name"], a["company"], a["address"], a["city"], a["landline"], a["phone"],
+          a["email"], a["website"], a["facebook"], a["instagram"], a["linkedin"],
+          a["company_landline"], a["company_phone"], a["company_website"], a["company_facebook"],
+          a["company_instagram"], a["notes"], a["created_at"])
          for a in _query(conn,
             "SELECT a.*, w.name AS band FROM art_directors a "
             "LEFT JOIN workspaces w ON w.id = a.workspace_id ORDER BY w.name, a.name")])))
@@ -6114,11 +7209,14 @@ def export_zip(conn):
             "LEFT JOIN user_profiles p ON p.email = m.email ORDER BY w.name, m.email")])))
 
     fogli.append(("modelli.csv", _csv_bytes(
-        ["band", "tipo", "nome", "oggetto", "messaggio"],
-        [(r["band"], r["tipo"], r["name"], r["subject"], r["message"]) for r in _query(conn,
-            "SELECT w.name AS band, 'whatsapp' AS tipo, t.name, NULL AS subject, t.message "
+        ["band", "tipo", "nome", "oggetto", "messaggio", "proprietario", "visibilita"],
+        [(r["band"], r["tipo"], r["name"], r["subject"], r["message"], r["owner_email"],
+          "pubblico" if r["is_public"] else "privato") for r in _query(conn,
+            "SELECT w.name AS band, 'whatsapp' AS tipo, t.name, NULL AS subject, t.message, "
+            "t.owner_email, t.is_public "
             "FROM wa_templates t LEFT JOIN workspaces w ON w.id = t.workspace_id "
-            "UNION ALL SELECT w.name, 'email', t.name, t.subject, t.message "
+            "UNION ALL SELECT w.name, 'email', t.name, t.subject, t.message, "
+            "t.owner_email, t.is_public "
             "FROM mail_templates t LEFT JOIN workspaces w ON w.id = t.workspace_id "
             "ORDER BY 1, 2, 3")])))
 
@@ -6259,6 +7357,23 @@ def _h_delete_gig(conn, match, query, body, ctx):
 
 def _h_create_task(conn, match, query, body, ctx):
     return 201, create_task(conn, require_ws(ctx), int(match.group(1)), body)
+
+
+def _h_list_loose_tasks(conn, match, query, body, ctx):
+    return 200, loose_tasks(conn, require_ws(ctx))
+
+
+def _h_create_loose_task(conn, match, query, body, ctx):
+    """Il compito scritto dall'Agenda. Puo' portarsi dietro un palco —
+    "location_id" nel corpo — e allora e' un compito di quel palco come
+    tutti gli altri: la scheda del posto se lo ritrova dentro."""
+    ws = require_ws(ctx)
+    loc = (body or {}).get("location_id")
+    return 201, create_task(conn, ws, int(loc) if loc else None, body)
+
+
+def _h_close_task(conn, match, query, body, ctx):
+    return 200, close_task(conn, require_ws(ctx), int(match.group(1)), body, ctx.email)
 
 
 def _h_update_task(conn, match, query, body, ctx):
@@ -6431,36 +7546,36 @@ def _h_delete_template(conn, match, query, body, ctx):
 
 
 def _h_list_wa_templates(conn, match, query, body, ctx):
-    return 200, fetch_wa_templates(conn, require_ws(ctx))
+    return 200, fetch_wa_templates(conn, require_ws(ctx), ctx.email)
 
 
 def _h_create_wa_template(conn, match, query, body, ctx):
-    return 201, create_wa_template(conn, require_ws(ctx), body)
+    return 201, create_wa_template(conn, require_ws(ctx), body, ctx.email)
 
 
 def _h_update_wa_template(conn, match, query, body, ctx):
-    return 200, update_wa_template(conn, require_ws(ctx), int(match.group(1)), body)
+    return 200, update_wa_template(conn, require_ws(ctx), int(match.group(1)), body, ctx.email)
 
 
 def _h_delete_wa_template(conn, match, query, body, ctx):
-    delete_wa_template(conn, require_ws(ctx), int(match.group(1)))
+    delete_wa_template(conn, require_ws(ctx), int(match.group(1)), ctx.email)
     return 204, {}
 
 
 def _h_list_mail_templates(conn, match, query, body, ctx):
-    return 200, fetch_mail_templates(conn, require_ws(ctx))
+    return 200, fetch_mail_templates(conn, require_ws(ctx), ctx.email)
 
 
 def _h_create_mail_template(conn, match, query, body, ctx):
-    return 201, create_mail_template(conn, require_ws(ctx), body)
+    return 201, create_mail_template(conn, require_ws(ctx), body, ctx.email)
 
 
 def _h_update_mail_template(conn, match, query, body, ctx):
-    return 200, update_mail_template(conn, require_ws(ctx), int(match.group(1)), body)
+    return 200, update_mail_template(conn, require_ws(ctx), int(match.group(1)), body, ctx.email)
 
 
 def _h_delete_mail_template(conn, match, query, body, ctx):
-    delete_mail_template(conn, require_ws(ctx), int(match.group(1)))
+    delete_mail_template(conn, require_ws(ctx), int(match.group(1)), ctx.email)
     return 204, {}
 
 
@@ -6600,6 +7715,47 @@ def _h_push_unsubscribe(conn, match, query, body, ctx):
     return 200, {"devices": push_unsubscribe(conn, ctx.email, body)}
 
 
+def _h_telegram_stato(conn, match, query, body, ctx):
+    require_admin(ctx)
+    return 200, telegram_stato()
+
+
+def _h_telegram_set(conn, match, query, body, ctx):
+    require_admin(ctx)
+    return 200, set_telegram_admin(conn, bool((body or {}).get("on")), ctx.email)
+
+
+def _h_agenda_stato(conn, match, query, body, ctx):
+    require_admin(ctx)
+    return 200, {"old_lists": AGENDA_LISTE_VECCHIE}
+
+
+def _h_agenda_set(conn, match, query, body, ctx):
+    require_admin(ctx)
+    return 200, set_agenda_liste_vecchie(conn, bool((body or {}).get("old_lists")), ctx.email)
+
+
+def _h_promemoria_stato(conn, match, query, body, ctx):
+    require_admin(ctx)
+    return 200, promemoria_stato(conn)
+
+
+def _h_promemoria_set(conn, match, query, body, ctx):
+    require_admin(ctx)
+    return 200, set_promemoria_ora(conn, (body or {}).get("hour"), ctx.email)
+
+
+def _h_promemoria_run(conn, match, query, body, ctx):
+    """Un giro subito, senza aspettare l'ora: per provare. Manda solo quello
+    che e' dovuto e non e' gia' partito, quindi premerlo due volte non
+    manda niente la seconda."""
+    require_admin(ctx)
+    partiti = invia_promemoria_compiti(conn)
+    stato = promemoria_stato(conn)
+    stato["sent_now"] = len(partiti)
+    return 200, stato
+
+
 def _h_push_people(conn, match, query, body, ctx):
     """L'elenco fra cui scegliere i destinatari della prova. E' di tutta
     l'installazione e non della band attiva, come il resto dell'Admin: chi
@@ -6658,6 +7814,12 @@ ROUTES = [
     ("PUT", re.compile(r"^/api/gigs/(\d+)$"), _h_update_gig),
     ("DELETE", re.compile(r"^/api/gigs/(\d+)$"), _h_delete_gig),
     ("POST", re.compile(r"^/api/locations/(\d+)/tasks$"), _h_create_task),
+    ("GET", re.compile(r"^/api/tasks$"), _h_list_loose_tasks),
+    ("POST", re.compile(r"^/api/tasks$"), _h_create_loose_task),
+    ("POST", re.compile(r"^/api/tasks/(\d+)/close$"), _h_close_task),
+    # Lo stesso modulo, col nome giusto: dal 25 settembre 2026 non chiude
+    # soltanto. /close resta per le app installate con la versione di prima.
+    ("POST", re.compile(r"^/api/tasks/(\d+)/save$"), _h_close_task),
     ("PUT", re.compile(r"^/api/tasks/(\d+)$"), _h_update_task),
     ("DELETE", re.compile(r"^/api/tasks/(\d+)$"), _h_delete_task),
     ("GET", re.compile(r"^/api/cash$"), _h_list_cash),
@@ -6726,7 +7888,14 @@ ROUTES = [
     ("POST", re.compile(r"^/api/push/subscribe$"), _h_push_subscribe),
     ("POST", re.compile(r"^/api/push/unsubscribe$"), _h_push_unsubscribe),
     ("GET", re.compile(r"^/api/admin/push/people$"), _h_push_people),
+    ("GET", re.compile(r"^/api/admin/telegram$"), _h_telegram_stato),
+    ("PUT", re.compile(r"^/api/admin/telegram$"), _h_telegram_set),
     ("POST", re.compile(r"^/api/admin/push/test$"), _h_push_test),
+    ("GET", re.compile(r"^/api/admin/agenda$"), _h_agenda_stato),
+    ("PUT", re.compile(r"^/api/admin/agenda$"), _h_agenda_set),
+    ("GET", re.compile(r"^/api/admin/promemoria$"), _h_promemoria_stato),
+    ("PUT", re.compile(r"^/api/admin/promemoria$"), _h_promemoria_set),
+    ("POST", re.compile(r"^/api/admin/promemoria/run$"), _h_promemoria_run),
     ("GET", re.compile(r"^/api/venue_types$"), _h_list_venue_types),
     ("POST", re.compile(r"^/api/venue_types$"), _h_create_venue_type),
     ("PUT", re.compile(r"^/api/venue_types/(\d+)$"), _h_update_venue_type),
@@ -7093,7 +8262,14 @@ class Handler(BaseHTTPRequestHandler):
                 upsert_profile_from_google(conn, email, userinfo.get("name"), userinfo.get("picture"))
                 session_id = create_session(conn, email)
                 destination = "/"
-                if invite_token:
+                link = self._cookie(PALCO_COOKIE) or ""
+                palco = PALCO_LINK_RE.match(link) or COMPITO_LINK_RE.match(link)
+                if palco and not invite_token:
+                    # Si ripassa da /p/: e' li' che si controlla la band e la
+                    # si rende attiva, e farlo in un posto solo vuol dire che
+                    # il link si comporta allo stesso modo prima e dopo
+                    # l'accesso.
+                    destination = palco.group(0)
                     joined, invite_error = accept_invite(conn, invite_token, email)
                     destination = (
                         "/?joined=" + urlencode({"n": joined})[2:] if joined
@@ -7108,7 +8284,7 @@ class Handler(BaseHTTPRequestHandler):
                 destination,
                 set_cookie=(SESSION_COOKIE, session_id),
                 max_age=SESSION_TTL_DAYS * 86400,
-                clear_cookie=INVITE_COOKIE if invite_token else None,
+                clear_cookie=INVITE_COOKIE if invite_token else (PALCO_COOKIE if palco else None),
             )
             return True
 
@@ -7196,11 +8372,97 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
         return True
 
+    def _handle_compito_link(self, method, path):
+        """Il link di un compito: /c/123, quello dell'avviso di scadenza.
+        Stesso giro di /p/ — si controlla la band, la si rende attiva — e poi
+        /?compito=123, dove la pagina apre l'Agenda sul compito."""
+        trovato = COMPITO_LINK_RE.match(path)
+        if method != "GET" or not trovato:
+            return False
+        task_id = int(trovato.group(1))
+        conn = get_conn()
+        try:
+            email = self._current_email(conn)
+            if auth_enabled() and not email:
+                self._send_redirect(
+                    "/login", set_cookie=(PALCO_COOKIE, path), max_age=INVITE_COOKIE_TTL_SECONDS
+                )
+                return True
+            row = conn.execute(
+                "SELECT COALESCE(l.workspace_id, t.workspace_id) AS ws FROM tasks t "
+                "LEFT JOIN locations l ON l.id = t.location_id WHERE t.id = ?",
+                (task_id,),
+            ).fetchone()
+            if not row:
+                errore = "Questo compito non c'è più"
+            elif auth_enabled() and not is_member(conn, row["ws"], email):
+                errore = "Questo compito è di una band di cui non fai parte"
+            else:
+                errore = None
+                if resolve_active_workspace(conn, email) != row["ws"]:
+                    set_active_workspace(conn, email, row["ws"])
+        finally:
+            conn.close()
+        if errore:
+            self._send_redirect("/?compito_error=" + urlencode({"e": errore})[2:])
+        else:
+            self._send_redirect("/?compito=%d" % task_id)
+        return True
+
+    def _handle_palco_link(self, method, path):
+        """Il link di un palco mandato a qualcuno della band: /p/123.
+
+        Non e' la pagina del palco, e' un rimando. Chi lo apre deve finire
+        nell'app con quel palco aperto, e per farlo il server sa due cose
+        che la pagina non sa: di quale band e' il palco, e se chi apre ne fa
+        parte. Se si', quella band diventa la sua band attiva — senza, l'app
+        caricherebbe i palchi di un'altra band e quello del link non ci
+        sarebbe. Poi si va su /?palco=123 e il resto lo fa la pagina.
+
+        Il numero da solo non apre niente a nessuno: chi non e' della band
+        riceve un messaggio, non il palco. E' lo stesso confine di tutto il
+        resto dell'app."""
+        trovato = PALCO_LINK_RE.match(path)
+        if method != "GET" or not trovato:
+            return False
+        loc_id = int(trovato.group(1))
+        conn = get_conn()
+        try:
+            email = self._current_email(conn)
+            if auth_enabled() and not email:
+                self._send_redirect(
+                    "/login", set_cookie=(PALCO_COOKIE, path), max_age=INVITE_COOKIE_TTL_SECONDS
+                )
+                return True
+            row = conn.execute(
+                "SELECT workspace_id FROM locations WHERE id = ?", (loc_id,)
+            ).fetchone()
+            if not row:
+                errore = "Questo palco non c'è più"
+            elif auth_enabled() and not is_member(conn, row["workspace_id"], email):
+                errore = "Questo palco è di una band di cui non fai parte"
+            else:
+                errore = None
+                if resolve_active_workspace(conn, email) != row["workspace_id"]:
+                    set_active_workspace(conn, email, row["workspace_id"])
+        finally:
+            conn.close()
+        if errore:
+            self._send_redirect("/?palco_error=" + urlencode({"e": errore})[2:])
+        else:
+            self._send_redirect("/?palco=%d" % loc_id)
+        return True
+
     def _dispatch(self, method):
         parsed = urlparse(self.path)
         path = parsed.path
 
         if self._handle_auth_route(method, path, parsed):
+            return
+
+        if self._handle_compito_link(method, path):
+            return
+        if self._handle_palco_link(method, path):
             return
 
         if (
@@ -7360,7 +8622,14 @@ def main():
 
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
     init_db()
+    conn = get_conn()
+    try:
+        load_app_settings(conn)
+        promemoria_partenza_silenziosa(conn)
+    finally:
+        conn.close()
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    avvia_promemoria()
     print("Palchi CRM avviato.")
     # Scritto all'avvio perche' e' l'unico modo di sapere da fuori se sono
     # accese: se sono spente per sbaglio, non arriva nessun messaggio e non
@@ -7369,6 +8638,8 @@ def main():
         print("  Notifiche Telegram: non configurate.")
     elif not TELEGRAM_ENABLED:
         print("  Notifiche Telegram: spente da TELEGRAM_ENABLED.")
+    elif not TELEGRAM_ADMIN_ON:
+        print("  Notifiche Telegram: spente dall'Admin.")
     else:
         print("  Notifiche Telegram: attive.")
     # Stessa ragione della riga qui sopra: se le push sono spente per sbaglio
@@ -7378,7 +8649,7 @@ def main():
     elif not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
         print("  Notifiche push: chiavi VAPID non configurate.")
     else:
-        print("  Notifiche push: attive.")
+        print("  Notifiche push: attive (avvisi di scadenza dalle %d)." % PROMEMORIA_ORA)
     print(f"  Su questo computer: http://localhost:{port}")
     print(f"  Da smartphone (stessa Wi-Fi): http://{local_ip()}:{port}")
     print("Premi Ctrl+C per fermare il server.")
