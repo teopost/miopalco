@@ -26,7 +26,7 @@ const CACHE_NAME = "palchi-shell-" + BUILD;
 // versione, è una traccia di quello che è successo su questo telefono, e
 // deve sopravvivere agli aggiornamenti — altrimenti sparirebbe proprio nel
 // momento in cui uno aggiorna per andare a vedere cosa non ha funzionato.
-const PUSH_LOG_CACHE = "gigflow-push-log";
+const PUSH_LOG_CACHE = "miopalco-push-log";
 const SHELL_ASSETS = [
   "/",
   "/manifest.json?v=2",
@@ -77,11 +77,11 @@ self.addEventListener("push", (event) => {
     // versione del server): meglio mostrarne il testo che ingoiarlo.
     dati = { body: event.data ? event.data.text() : "" };
   }
-  const titolo = dati.title || "GigFlow";
+  const titolo = dati.title || "MioPalco";
   // Un corpo vuoto lascerebbe una notifica con la sola riga del titolo, che
   // si legge come "e' arrivato qualcosa ma non si sa cosa": meglio dire
   // almeno cosa fare.
-  const testo = dati.body || "Tocca per aprire GigFlow";
+  const testo = dati.body || "Tocca per aprire MioPalco";
   event.waitUntil(
     self.registration
       .showNotification(titolo, {
@@ -90,8 +90,8 @@ self.addEventListener("push", (event) => {
         badge: "/icons/icon-192.png?v=2",
         // Stesso tag = la notifica nuova sostituisce quella vecchia invece di
         // impilarsi. Chi manda decide cosa può sovrascrivere cosa; senza tag
-        // esplicito tutte le notifiche di GigFlow restano una sola riga.
-        tag: dati.tag || "gigflow",
+        // esplicito tutte le notifiche di MioPalco restano una sola riga.
+        tag: dati.tag || "miopalco",
         data: { url: dati.url || "/" },
       })
       .then(() => annotaPush(titolo, testo, null))
@@ -170,7 +170,7 @@ function paginaSenzaRete() {
   return new Response(
     "<!doctype html><meta charset=utf-8>" +
       "<meta name=viewport content=\"width=device-width,initial-scale=1\">" +
-      "<title>GigFlow</title>" +
+      "<title>MioPalco</title>" +
       "<body style=\"font-family:-apple-system,system-ui,sans-serif;padding:48px 24px;text-align:center;color:#666;line-height:1.5\">" +
       "<p>La rete non risponde, e di questa pagina non c\u2019\u00e8 ancora una copia sul telefono.</p>" +
       "<p><a href=\"/\" style=\"color:#0a7cff\">Riprova</a></p>",

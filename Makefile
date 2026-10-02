@@ -1,5 +1,5 @@
-SERVICE := gigflow
-IMAGE   := gigflow
+SERVICE := miopalco
+IMAGE   := miopalco
 
 .PHONY: help build up down restart rebuild logs ps shell clean import geocode
 

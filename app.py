@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GigFlow — gestionale locale per i posti dove far suonare la band.
+"""MioPalco — gestionale locale per i posti dove far suonare la band.
 
 Server autonomo (solo libreria standard) con database SQLite.
 Avvio:  python3 app.py [porta]
@@ -185,7 +185,7 @@ NOTIFY_VISIT_GAP_MINUTES = 30
 # c'e' nessun account da aprire, nessun Firebase, nessuna chiave da farsi
 # dare. Le due chiavi qui sotto te le generi da solo una volta sola (come si
 # fa e' scritto nel .env.example) e sono l'unica cosa che dice "questo
-# messaggio viene davvero da GigFlow". Come per Telegram, se mancano la
+# messaggio viene davvero da MioPalco". Come per Telegram, se mancano la
 # funzione e' spenta e l'app si comporta esattamente come prima.
 #
 # Chi consegna non lo scegliamo noi: e' il browser di chi riceve a dare
@@ -199,7 +199,7 @@ VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "").strip()
 # mettesse a mandare messaggi a vanvera. Non viene verificato ne' registrato
 # da nessuno: deve solo essere un mailto: sintatticamente valido.
 VAPID_SUBJECT = (
-    os.environ.get("VAPID_SUBJECT", "").strip() or "mailto:gigflow@localhost"
+    os.environ.get("VAPID_SUBJECT", "").strip() or "mailto:miopalco@localhost"
 )
 # Quanto a lungo il servizio di consegna tiene da parte una notifica per un
 # telefono spento o senza rete. Mezza giornata: oltre, la cosa che voleva
@@ -2182,7 +2182,7 @@ def notify_login(conn, email, primo_accesso):
     if not telegram_enabled():
         return
     nome, banda = chi_e(conn, email)
-    telegram_send("%s <b>%s</b> è entrato in GigFlow%s\n%s · %s" % (
+    telegram_send("%s <b>%s</b> è entrato in MioPalco%s\n%s · %s" % (
         "🆕" if primo_accesso else "🎤",
         nome,
         " per la prima volta" if primo_accesso else "",
@@ -2200,7 +2200,7 @@ def notify_visit(conn, email, ultimo_iso, adesso):
         return
     nome, banda = chi_e(conn, email)
     quando = da_quanto(ultimo_iso, adesso)
-    telegram_send("👋 <b>%s</b> è tornato in GigFlow\n%s · %s%s" % (
+    telegram_send("👋 <b>%s</b> è tornato in MioPalco\n%s · %s%s" % (
         nome, html.escape(email), banda,
         " · ultima volta " + quando if quando else "",
     ))
@@ -2211,7 +2211,7 @@ def notify_visit(conn, email, ultimo_iso, adesso):
 # che vale per qualsiasi messaggio, e piu' giu' una funzione per ogni fatto.
 # Cambia il destinatario. Telegram va a chi amministra l'installazione ed e'
 # un filo solo; le push vanno a una persona della band, su tutti i
-# dispositivi da cui ha detto di si', e sono la prima cosa di GigFlow che
+# dispositivi da cui ha detto di si', e sono la prima cosa di MioPalco che
 # parla a chi lo usa invece che a chi lo tiene su.
 
 def push_enabled():
@@ -2393,7 +2393,7 @@ def notify_push_prova(conn, emails, testo=None):
     testo = (testo or "").strip() or PUSH_TESTO_DI_PROVA
     esiti = []
     for email in emails:
-        quanti = push_send(conn, email, "GigFlow", testo, "/")
+        quanti = push_send(conn, email, "MioPalco", testo, "/")
         if quanti:
             esiti.append({"email": email, "devices": quanti})
     return esiti
@@ -5592,7 +5592,7 @@ FB_PICTURE_URL = "https://graph.facebook.com/%s/picture?redirect=false&width=720
 # Bastano per la copertina in elenco (48 punti) e per la miniatura nella
 # striscia (88); a schermo intero si vede che e' piccola.
 IG_PROFILE_URL = "https://www.instagram.com/%s/"
-IG_CRAWLER_UA = "GigFlowBot/1.0 (anteprima del profilo; +https://gigflow.local)"
+IG_CRAWLER_UA = "MioPalcoBot/1.0 (anteprima del profilo; +https://miopalco.com)"
 IG_HOSTS = ("instagram.com", "instagr.am")
 IG_USER_OK = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 # Pezzi di indirizzo che sembrano un nome utente e non lo sono: un link a un
@@ -5875,7 +5875,7 @@ def instagram_cerca(conn, ws, loc_id, body=None):
 def _facebook_json(page_id):
     req = urllib.request.Request(
         FB_PICTURE_URL % quote(page_id, safe=""),
-        headers={"User-Agent": "GigFlow"},
+        headers={"User-Agent": "MioPalco"},
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.load(resp)
@@ -5883,7 +5883,7 @@ def _facebook_json(page_id):
 
 # LinkedIn, come Instagram, la foto la mette nell'og:image della pagina
 # pubblica del profilo, e la manda a chi si presenta col suo nome: con lo
-# stesso GigFlowBot di Instagram risponde, a Python-urllib senza nome no
+# stesso MioPalcoBot di Instagram risponde, a Python-urllib senza nome no
 # (provato il 24 settembre 2026). La foto e' 200x200, firmata come quelle
 # di Instagram: una misura diversa non si puo' chiedere.
 #
@@ -5892,7 +5892,7 @@ def _facebook_json(page_id):
 # risponde 999 a tutti tranne che ai programmi che fanno le anteprime dei
 # link nelle chat: a WhatsApp e a Telegram la stessa pagina la da', con la
 # foto (provato il 24 settembre 2026 su un profilo pubblico normale: 999 a
-# GigFlowBot e a un browser, 200 a WhatsApp e a Telegram). Per Instagram
+# MioPalcoBot e a un browser, 200 a WhatsApp e a Telegram). Per Instagram
 # presentarsi come un altro si era scartato perche' valeva cinquanta pixel;
 # qui vale la differenza fra funzionare e non funzionare. Per questo si
 # prova prima col nostro nome, e solo se LinkedIn dice di no ci si presenta
@@ -6087,7 +6087,7 @@ def scarica_immagine_social(url):
         raise ApiError(502, "Il social ha risposto con un indirizzo inatteso")
 
     try:
-        req = urllib.request.Request(foto_url, headers={"User-Agent": "GigFlow"})
+        req = urllib.request.Request(foto_url, headers={"User-Agent": "MioPalco"})
         with urllib.request.urlopen(req, timeout=20) as resp:
             ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
             raw = resp.read(MAX_PHOTO_BYTES + 1)
@@ -7225,7 +7225,7 @@ def export_zip(conn):
         for nome, dati in fogli:
             z.writestr(nome, dati)
         z.writestr("LEGGIMI.txt", (
-            "Esportazione GigFlow del " + now_iso()[:19].replace("T", " ") + " (UTC)\r\n"
+            "Esportazione MioPalco del " + now_iso()[:19].replace("T", " ") + " (UTC)\r\n"
             "build " + build_label() + " · " + build_version() + "\r\n\r\n"
             "I file sono CSV con separatore punto e virgola e codifica UTF-8 con BOM:\r\n"
             "aprili con un doppio clic, Excel in italiano li riconosce da solo.\r\n\r\n"
@@ -7921,7 +7921,7 @@ LOGIN_PAGE_TEMPLATE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Accedi — GigFlow</title>
+<title>Accedi — MioPalco</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap">
@@ -8061,7 +8061,7 @@ LOGIN_PAGE_TEMPLATE = """<!doctype html>
   <div class="vignette"></div>
 
   <div class="card">
-    <div class="brand">GIGFLOW</div>
+    <div class="brand">MIOPALCO</div>
     <p class="tagline">Il gestionale live della tua band</p>
     __MSG__
     <a class="btn" href="/auth/google">
@@ -8079,7 +8079,7 @@ LOGIN_PAGE_TEMPLATE = """<!doctype html>
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "GigFlowCRM/1.0"
+    server_version = "MioPalcoCRM/1.0"
 
     def log_message(self, fmt, *args):
         pass  # niente log rumoroso in console
@@ -8499,7 +8499,7 @@ class Handler(BaseHTTPRequestHandler):
                 conn.close()
             self._send_download(
                 dati, "application/zip",
-                "gigflow-%s.zip" % now_iso()[:10].replace("-", ""),
+                "miopalco-%s.zip" % now_iso()[:10].replace("-", ""),
             )
             return
 

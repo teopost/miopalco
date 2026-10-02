@@ -1,4 +1,4 @@
-# L'unica dipendenza esterna di GigFlow, e serve a una cosa sola: le
+# L'unica dipendenza esterna di MioPalco, e serve a una cosa sola: le
 # notifiche push sul telefono (la sezione "le notifiche push" in app.py).
 # Il Web Push vuole una firma ECDSA e una cifratura che la libreria standard
 # di Python non ha. Tutto il resto dell'app continua a non dipendere da

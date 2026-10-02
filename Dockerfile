@@ -1,4 +1,4 @@
-# GigFlow — gestionale live per la band.
+# MioPalco — gestionale live per la band.
 # L'app usa la libreria standard di Python e una sola dipendenza esterna,
 # pywebpush, che serve alle notifiche push sul telefono (vedi
 # requirements.txt). Senza di lei l'app parte comunque, con le push spente.
