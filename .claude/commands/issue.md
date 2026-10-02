@@ -4,7 +4,7 @@ argument-hint: "[numero della issue — vuoto: prende la prima ready]"
 allowed-tools: Bash(gh issue:*), Bash(gh label:*), Bash(gh api:*), Bash(git:*), Bash(docker compose:*), Bash(make:*), Bash(curl:*)
 ---
 
-Implementa la issue **$ARGUMENTS** del repo `teopost/gigflow`.
+Implementa la issue **$ARGUMENTS** del repo `teopost/miopalco`.
 
 Se non c'e' nessun numero, prendi la prima della lista:
 `gh issue list --label ready --state open --json number,title --jq 'sort_by(.number) | .[0]'`
