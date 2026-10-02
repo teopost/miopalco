@@ -20,6 +20,10 @@ ENV PYTHONUNBUFFERED=1
 
 COPY app.py import_excel.py geocode_venues.py ./
 COPY static/ ./static/
+# La pagina di presentazione: l'app la mostra su "/" a chi non ha fatto
+# l'accesso. E' la stessa che GitHub Pages pubblica dalla cartella docs/.
+COPY docs/index.html docs/icon-192.png ./docs/
+COPY docs/img/ ./docs/img/
 RUN mkdir -p /app/data
 
 # Niente utente dedicato: /app/data è un bind mount sulla cartella data/ del

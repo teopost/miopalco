@@ -45,6 +45,10 @@ except ImportError:  # pragma: no cover - immagine senza la libreria
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "crm.db")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
+# La pagina di presentazione: la stessa che GitHub Pages pubblica da docs/,
+# servita qui a chi apre miopalco.com senza aver fatto l'accesso.
+DOCS_DIR = os.path.join(BASE_DIR, "docs")
+LANDING_ASSETS = {".webp": "image/webp", ".png": "image/png"}
 PHOTOS_DIR = os.path.join(BASE_DIR, "data", "photos")
 # Le facce degli art director stanno in una cartella loro (photos_ad, di fianco
 # a photos): sono di una persona, non di un posto, e in mezzo alle 281 foto
@@ -8203,8 +8207,54 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body_bytes)
 
+    def _send_landing(self):
+        try:
+            with open(os.path.join(DOCS_DIR, "index.html"), encoding="utf-8") as f:
+                body = f.read()
+        except OSError:
+            return False
+        # Su GitHub Pages il manifest non c'e'. Qui serve: e' quello che fa
+        # installare a Chrome l'app vera invece di una scorciatoia al sito.
+        body = body.replace("</head>", '<link rel="manifest" href="/manifest.json?v=2">\n</head>', 1)
+        body_bytes = body.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        # Il service worker la riconosce da qui e non la mette in cache al
+        # posto dell'app: chi rientra senza rete deve ritrovare l'app.
+        self.send_header("X-Pagina-Pubblica", "1")
+        self.send_header("Content-Length", str(len(body_bytes)))
+        self.end_headers()
+        self.wfile.write(body_bytes)
+        return True
+
+    def _send_landing_asset(self, path):
+        rel = path.lstrip("/")
+        ext = os.path.splitext(rel)[1].lower()
+        full = os.path.normpath(os.path.join(DOCS_DIR, rel))
+        if (
+            ext not in LANDING_ASSETS
+            or not (rel.startswith("img/") or rel == "icon-192.png")
+            or not full.startswith(DOCS_DIR + os.sep)
+            or not os.path.isfile(full)
+        ):
+            self._send_json(404, {"error": "Non trovato"})
+            return
+        self._send_file(full, LANDING_ASSETS[ext], cache_control="public, max-age=86400")
+
     def _handle_auth_route(self, method, path, parsed):
         if method == "GET" and path == "/login":
+            # Chi ha gia' una sessione e arriva qui dal sito di presentazione
+            # ("Apri MioPalco") va dritto nell'app, senza ripassare da Google.
+            if auth_enabled():
+                conn = get_conn()
+                try:
+                    email = self._current_email(conn)
+                finally:
+                    conn.close()
+                if email:
+                    self._send_redirect("/")
+                    return True
             self._send_login_page()
             return True
 
@@ -8465,6 +8515,10 @@ class Handler(BaseHTTPRequestHandler):
         if self._handle_palco_link(method, path):
             return
 
+        if method == "GET" and (path.startswith("/img/") or path == "/icon-192.png"):
+            self._send_landing_asset(path)
+            return
+
         if (
             auth_enabled()
             and path not in PUBLIC_PATHS
@@ -8480,6 +8534,8 @@ class Handler(BaseHTTPRequestHandler):
             if not email:
                 if path.startswith("/api/"):
                     self._send_json(401, {"error": "Accesso richiesto"})
+                elif method == "GET" and path == "/" and self._send_landing():
+                    pass
                 else:
                     self._send_redirect("/login")
                 return

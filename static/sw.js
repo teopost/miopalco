@@ -197,7 +197,9 @@ function documentoConCronometro(req) {
 
     fetch(req)
       .then((res) => {
-        if (res && res.ok) {
+        // La pagina di presentazione (chi apre "/" senza sessione) non va
+        // in cache: senza rete si deve ritrovare l'app, non la vetrina.
+        if (res && res.ok && !res.headers.get("X-Pagina-Pubblica")) {
           const copia = res.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(req, copia));
         }
