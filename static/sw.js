@@ -92,6 +92,14 @@ self.addEventListener("push", (event) => {
         // impilarsi. Chi manda decide cosa può sovrascrivere cosa; senza tag
         // esplicito tutte le notifiche di MioPalco restano una sola riga.
         tag: dati.tag || "miopalco",
+        // Senza renotify una notifica che ne sostituisce un'altra con lo
+        // stesso tag arriva muta: niente suono, niente vibrazione (3 ottobre
+        // 2026, tre segnalazioni di prova di fila e il telefono zitto). Il
+        // suono e' quello di sistema: le web app non possono sceglierne un
+        // altro, e se il telefono e' in silenzioso resta in silenzio.
+        renotify: true,
+        silent: false,
+        vibrate: [200, 100, 200],
         data: { url: dati.url || "/" },
       })
       .then(() => annotaPush(titolo, testo, null))

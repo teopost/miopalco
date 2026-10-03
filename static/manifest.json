@@ -8,7 +8,71 @@
   "background_color": "#10181f",
   "theme_color": "#10181f",
   "icons": [
-    { "src": "/icons/icon-192.png?v=2", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-512.png?v=2", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    {
+      "src": "/icons/icon-192.png?v=2",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png?v=2",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nuovo palco",
+      "short_name": "Nuovo palco",
+      "description": "Apre la scheda di un palco nuovo",
+      "url": "/?azione=nuovo-palco",
+      "icons": [
+        {
+          "src": "/icons/shortcut-palco.png?v=2",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Nuova opportunità",
+      "short_name": "Opportunità",
+      "description": "Apre un'opportunità nuova",
+      "url": "/?azione=nuova-opportunita",
+      "icons": [
+        {
+          "src": "/icons/shortcut-opportunita.png?v=2",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Nuovo compito",
+      "short_name": "Nuovo compito",
+      "description": "Apre un compito nuovo in Agenda",
+      "url": "/?azione=nuovo-compito",
+      "icons": [
+        {
+          "src": "/icons/shortcut-compito.png?v=2",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "I miei compiti",
+      "short_name": "Miei compiti",
+      "description": "Agenda › Compiti, solo i miei",
+      "url": "/?azione=miei-compiti",
+      "icons": [
+        {
+          "src": "/icons/shortcut-miei.png?v=2",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
   ]
 }

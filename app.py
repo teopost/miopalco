@@ -167,6 +167,11 @@ def is_admin(email):
 # comporta esattamente come prima. Vivono nel .env e non nel database perche'
 # la notifica e' di chi tiene su l'installazione, non del singolo workspace.
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+# Le segnalazioni inoltrate come issue (3 ottobre 2026). Il token e' un
+# fine-grained token di GitHub con il solo permesso Issues (lettura e
+# scrittura) sul repository: senza, l'inoltro e' spento e l'app lo dice.
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip()
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "teopost/miopalco").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 # L'interruttore per farle tacere senza cancellare token e chat dal .env.
 # Vuoto vuol dire accese: chi ha gia' messo il bot non deve aggiungere niente
@@ -293,6 +298,11 @@ LOCATION_FIELDS = [
     "contact_name", "landline", "phone", "email", "website", "facebook", "instagram",
     "capacity", "genre",
     "art_director_id", "status", "next_contact_date", "planning_note",
+    # I mesi in cui il palco fa il suo calendario (3 ottobre 2026): "03,10"
+    # e' marzo e ottobre, tutti e dodici e' "Tutto l'anno". E' quello su cui
+    # si basa Agenda › Programmazioni; next_contact_date resta nel database
+    # ma la scheda non la mostra piu'.
+    "programming_months",
     "owner_email",
     # "favorite" non c'e' piu': la stella non e' un campo del palco,
     # e' una riga di location_favorites intestata a chi l'ha messa.
@@ -370,10 +380,13 @@ ART_DIRECTOR_FIELDS = [
 ]
 BAND_FIELDS = ["name", "facebook", "followers", "base", "contact", "gigs_count", "notes"]
 
-# Una segnalazione nasce "da valutare"; l'amministratore dell'app la chiude
-# in uno dei due modi. "Rifiutato" non e' una scortesia: e' la risposta
-# onesta a qualcosa che non verra' fatto, e vale piu' di un silenzio.
-REPORT_STATUSES = {"da_valutare", "fatto", "rifiutato"}
+# Una segnalazione nasce "nuovo" (3 ottobre 2026, chiesto da Stefano: prima
+# nasceva "da valutare"); "da valutare" vuol dire che l'admin l'ha letta e
+# ci sta pensando. Tutte e due sono aperte. L'amministratore la chiude in
+# uno dei due modi. "Rifiutato" non e' una scortesia: e' la risposta onesta
+# a qualcosa che non verra' fatto, e vale piu' di un silenzio.
+REPORT_STATUSES = {"nuovo", "da_valutare", "fatto", "rifiutato"}
+REPORT_APERTE = ("nuovo", "da_valutare")
 # Un'anomalia e' qualcosa che non funziona, un suggerimento qualcosa che
 # manca: due mestieri diversi per chi le legge, e sapere quale e' prima di
 # aprirla cambia l'ordine in cui le guardi.
@@ -726,7 +739,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             text TEXT NOT NULL,
             kind TEXT,
-            status TEXT NOT NULL DEFAULT 'da_valutare',
+            status TEXT NOT NULL DEFAULT 'nuovo',
             email TEXT,
             workspace_id INTEGER,
             build TEXT,
@@ -1155,6 +1168,13 @@ def migrate_schema(conn):
     report_cols = {row["name"] for row in conn.execute("PRAGMA table_info(reports)").fetchall()}
     if "kind" not in report_cols:
         conn.execute("ALTER TABLE reports ADD COLUMN kind TEXT")
+    # Il dettaglio della segnalazione nell'Admin (3 ottobre 2026): il testo
+    # si puo' correggere, e quello scritto da chi l'ha mandata resta in
+    # original_text; issue_* dicono dove e' finita su GitHub.
+    for col, tipo in (("original_text", "TEXT"), ("edited_at", "TEXT"), ("edited_by", "TEXT"),
+                      ("issue_number", "INTEGER"), ("issue_url", "TEXT"), ("issue_at", "TEXT")):
+        if col not in report_cols:
+            conn.execute(f"ALTER TABLE reports ADD COLUMN {col} {tipo}")
     # "aperta" si chiamava cosi' prima che gli stati diventassero tre.
     # Idempotente: dopo il primo giro non c'e' piu' niente da cambiare.
     conn.execute("UPDATE reports SET status = 'da_valutare' WHERE status = 'aperta'")
@@ -1224,6 +1244,7 @@ def migrate_schema(conn):
     migrate_to_gigs(conn)
     migrate_drop_season(conn)
     migrate_to_next_contact_date(conn)
+    migrate_programming_months(conn)
     migrate_drop_rifiutato(conn)
     migrate_to_venue_lifecycle(conn)
     migrate_to_gig_opportunita(conn)
@@ -1631,6 +1652,25 @@ def migrate_to_next_contact_date(conn):
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_locations_next_contact ON locations(next_contact_date)"
     )
+
+
+def migrate_programming_months(conn):
+    """I mesi di programmazione (3 ottobre 2026), al posto della data di
+    contatto in Agenda › Programmazioni.
+
+    Nascono dal mese della data che c'era: "15/03/2027" diventa marzo
+    (scelta di Stefano). Gira solo la volta in cui la colonna nasce: dopo,
+    un palco a cui hai tolto tutti i mesi deve restare senza, non
+    ritrovarsi il mese della data vecchia al riavvio."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(locations)").fetchall()}
+    if "programming_months" in cols:
+        return
+    conn.execute("ALTER TABLE locations ADD COLUMN programming_months TEXT")
+    n = conn.execute(
+        "UPDATE locations SET programming_months = substr(next_contact_date, 6, 2) "
+        "WHERE next_contact_date IS NOT NULL AND length(next_contact_date) >= 7"
+    ).rowcount
+    print("  Mesi di programmazione: %d palchi prendono il mese della data di contatto." % n)
 
 
 def migrate_tasks_senza_palco(conn):
@@ -2054,11 +2094,9 @@ def telegram_enabled():
 
 
 def load_app_settings(conn):
-    global TELEGRAM_ADMIN_ON, PROMEMORIA_ORA, AGENDA_LISTE_VECCHIE
+    global TELEGRAM_ADMIN_ON, PROMEMORIA_ORA
     row = conn.execute("SELECT value FROM app_settings WHERE key = 'telegram_on'").fetchone()
     TELEGRAM_ADMIN_ON = (row is None) or row["value"] != "0"
-    row = conn.execute("SELECT value FROM app_settings WHERE key = 'agenda_old_lists'").fetchone()
-    AGENDA_LISTE_VECCHIE = (row is not None) and row["value"] == "1"
     row = conn.execute(
         "SELECT value FROM app_settings WHERE key = 'task_reminder_hour'"
     ).fetchone()
@@ -2067,29 +2105,6 @@ def load_app_settings(conn):
     except (TypeError, ValueError):
         ora = PROMEMORIA_ORA_PREDEFINITA
     PROMEMORIA_ORA = ora if 0 <= ora <= 23 else PROMEMORIA_ORA_PREDEFINITA
-
-
-# Le due code vecchie dell'Agenda, "Da contattare" e "Da pianificare" (30
-# settembre 2026): dall'Admin si nascondono per tutti, e nascoste e' il
-# predefinito — una riga che manca in app_settings vuol dire nascoste. Al
-# loro posto c'e' "Pianificazioni". In memoria come Telegram: viaggia in
-# ogni /api/me, e chiedere il database a ogni avvio dell'app per un si' o
-# un no sarebbe il costo sbagliato.
-AGENDA_LISTE_VECCHIE = False
-
-
-def set_agenda_liste_vecchie(conn, visibili, email):
-    global AGENDA_LISTE_VECCHIE
-    conn.execute(
-        "INSERT INTO app_settings (key, value, updated_by, updated_at) "
-        "VALUES ('agenda_old_lists', ?, ?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, "
-        "updated_at = excluded.updated_at",
-        ("1" if visibili else "0", email, now_iso()),
-    )
-    conn.commit()
-    AGENDA_LISTE_VECCHIE = bool(visibili)
-    return {"old_lists": AGENDA_LISTE_VECCHIE}
 
 
 def telegram_stato():
@@ -2222,7 +2237,7 @@ def push_enabled():
     return bool(webpush and VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY)
 
 
-def push_send(conn, email, titolo, testo, url="/"):
+def push_send(conn, email, titolo, testo, url="/", tag=None):
     """Manda una notifica a tutti i dispositivi di una persona e restituisce
     a quanti e' stata affidata. Come per Telegram l'invio e' a perdere: le
     iscrizioni si leggono qui, con la connessione di chi chiama, e poi parte
@@ -2239,21 +2254,21 @@ def push_send(conn, email, titolo, testo, url="/"):
         return 0
     iscrizioni = [dict(r) for r in righe]
     threading.Thread(
-        target=_push_post_all, args=(iscrizioni, titolo, testo, url), daemon=True
+        target=_push_post_all, args=(iscrizioni, titolo, testo, url, tag), daemon=True
     ).start()
     return len(iscrizioni)
 
 
-def _push_post_all(iscrizioni, titolo, testo, url):
+def _push_post_all(iscrizioni, titolo, testo, url, tag=None):
     morte = [
         s["id"] for s in iscrizioni
-        if _push_post(s, titolo, testo, url) == "morta"
+        if _push_post(s, titolo, testo, url, tag) == "morta"
     ]
     if morte:
         _push_dimentica(morte)
 
 
-def _push_post(iscrizione, titolo, testo, url):
+def _push_post(iscrizione, titolo, testo, url, tag=None):
     """Una notifica a un dispositivo solo. Il testo viene cifrato con le
     chiavi di quel dispositivo: il servizio di consegna inoltra byte che non
     sa leggere."""
@@ -2266,7 +2281,11 @@ def _push_post(iscrizione, titolo, testo, url):
                     "auth": iscrizione["auth"],
                 },
             },
-            data=json.dumps({"title": titolo, "body": testo, "url": url}),
+            # Il tag decide cosa sostituisce cosa sul telefono: senza, il
+            # service worker usa "miopalco" e ogni notifica prende il posto
+            # della precedente.
+            data=json.dumps(dict({"title": titolo, "body": testo, "url": url},
+                                 **({"tag": tag} if tag else {}))),
             vapid_private_key=VAPID_PRIVATE_KEY,
             # Un dizionario nuovo a ogni invio, non una costante: la libreria
             # ci scrive dentro la scadenza e il destinatario prima di firmare.
@@ -2401,6 +2420,30 @@ def notify_push_prova(conn, emails, testo=None):
         if quanti:
             esiti.append({"email": email, "devices": quanti})
     return esiti
+
+
+def notify_segnalazione(conn, report):
+    """Una segnalazione nuova arriva come push agli amministratori dell'app
+    (ADMIN_EMAILS), su tutti i loro dispositivi (3 ottobre 2026, chiesto da
+    Stefano). Chi l'ha scritta non la riceve anche se e' admin: la sa gia'.
+    Il tocco apre Admin › Segnalazioni. Restituisce a quanti e' partita."""
+    autore = (report.get("email") or "").strip().lower()
+    nome = report.get("author_name") or (autore.split("@")[0] if autore else "Qualcuno")
+    tipo = "Anomalia" if report.get("kind") == "anomalia" else "Suggerimento"
+    titolo = "Nuova segnalazione · " + tipo
+    testo = (report.get("text") or "").strip().replace("\n", " ")
+    if len(testo) > 140:
+        testo = testo[:139].rstrip() + "…"
+    if report.get("band_name"):
+        nome += " (" + report["band_name"] + ")"
+    corpo = "%s: %s" % (nome, testo)
+    return sum(
+        # Un tag per segnalazione: tre segnalazioni restano tre notifiche,
+        # invece di sostituirsi l'una all'altra.
+        push_send(conn, email, titolo, corpo, "/?segnalazioni=1",
+                  tag="segnalazione-%s" % report.get("id"))
+        for email in sorted(ADMIN_EMAILS) if email != autore
+    )
 
 
 # --- gli avvisi di scadenza dei compiti ---------------------------------
@@ -3071,8 +3114,6 @@ def fetch_me(conn, email):
     d["is_admin"] = (not auth_enabled()) or is_admin(email)
     d["role"] = member_role(conn, active, email) if (active and email) else "leader"
     d["can_write"] = d["role"] != "slaker"
-    # Di tutta l'installazione, non della persona: lo decide l'Admin.
-    d["agenda_old_lists"] = AGENDA_LISTE_VECCHIE
     return d
 
 
@@ -3505,9 +3546,10 @@ def gig_to_dict(row):
 
 def current_gig_row(conn, loc_id):
     """La serata che conta adesso: quella aperta, e se non ce ne sono aperte
-    l'ultima chiusa. E' da qui che il palco prende lo stato mostrato
-    negli elenchi, ed e' a questa che si attaccano le attivita' registrate.
-    Di aperte ce n'e' al massimo una: aprirne una chiude quella di prima."""
+    l'ultima chiusa. Dal 3 ottobre 2026 le aperte possono essere piu' di
+    una: questa e' la prima nell'ordine di GIG_ORDER, e chi deve sapere
+    QUALE opportunita' toccare non la usa piu' (vedi scrivi_nota e
+    close_task)."""
     return conn.execute(
         "SELECT * FROM gigs WHERE location_id = ? "
         "ORDER BY (closed_at IS NULL) DESC, " + GIG_ORDER[len("ORDER BY "):] + " LIMIT 1",
@@ -3686,15 +3728,11 @@ def scrivi_gig_nuova(conn, loc_id, data):
     chiusura di un compito, che deve scrivere tutto o niente. I controlli
     (palco, stato, data) li ha gia' fatti chi la chiama."""
     ts = now_iso()
-    # Ricominciare chiude il tentativo rimasto in sospeso: di aperta ce n'e'
-    # una sola per volta, ed e' quella che il palco mostra come stato.
-    # Lo stato di quella vecchia resta scritto com'era: la storia non si
-    # riscrive, si chiude.
-    conn.execute(
-        "UPDATE gigs SET closed_at = ?, updated_at = ? "
-        "WHERE location_id = ? AND closed_at IS NULL",
-        (ts, ts, loc_id),
-    )
+    # Fino al 3 ottobre 2026 qui si chiudeva l'opportunita' rimasta aperta:
+    # di aperte ce n'era una sola. Stefano ha due trattative vere sullo
+    # stesso palco (due date diverse), e la prima finiva "Non conclusa"
+    # mentre era ancora in piedi. Adesso restano aperte tutte e due, e una
+    # si chiude quando dici tu com'e' andata.
     fields = ["location_id"] + list(data.keys()) + ["closed_at", "created_at", "updated_at"]
     values = [loc_id] + list(data.values()) + [
         data_di_chiusura(data["status"], data.get("gig_date"), ts), ts, ts,
@@ -4089,14 +4127,19 @@ def close_task(conn, ws, task_id, body, email=None):
     if opp:
         if not isinstance(opp, dict):
             raise ApiError(400, "Opportunità non valida")
-        corrente = current_gig_row(conn, loc_id)
-        gig_aperta = corrente if (corrente is not None and corrente["closed_at"] is None) else None
-        # Il pannellino dice quale opportunita' aperta vedeva. Se nel
-        # frattempo un altro della band ne ha aperta o chiusa una, scrivere
-        # vorrebbe dire chiudere quella sua di nascosto, o aggiornare quella
-        # sbagliata: meglio fermarsi e far ridisegnare il pannellino.
-        vista = opp.get("expect_open_gig_id")
-        if (gig_aperta["id"] if gig_aperta else None) != (int(vista) if vista else None):
+        # Il pannellino dice quale opportunita' aggiornare (gig_id), o
+        # nessuna per aprirne una nuova: dal 3 ottobre 2026 le aperte possono
+        # essere piu' di una e non si puo' indovinare. Le app vecchie mandano
+        # expect_open_gig_id, che voleva dire la stessa cosa. Se nel
+        # frattempo quella scelta e' stata chiusa da un altro della band,
+        # meglio fermarsi e far ridisegnare il pannellino.
+        scelta = opp["gig_id"] if "gig_id" in opp else opp.get("expect_open_gig_id")
+        if scelta:
+            gig_aperta = conn.execute(
+                "SELECT * FROM gigs WHERE id = ? AND location_id = ? AND closed_at IS NULL",
+                (int(scelta), loc_id),
+            ).fetchone()
+        if scelta and gig_aperta is None:
             raise ApiError(
                 409,
                 "Nel frattempo l'opportunità di questo palco è cambiata: ricontrolla e conferma di nuovo.",
@@ -4161,10 +4204,12 @@ def close_task(conn, ws, task_id, body, email=None):
             else:
                 scrivi_gig_aggiornata(conn, loc_id, gig_aperta["id"], dati_gig)
                 gig_toccata = gig_aperta["id"]
-        # Lo storico dopo l'opportunita': scrivi_nota si attacca a quella
-        # aperta in questo momento, quindi anche a quella appena nata.
+        # Lo storico dopo l'opportunita': si attacca a quella appena aperta o
+        # aggiornata; se il pannellino non ne ha toccata nessuna, scrivi_nota
+        # sceglie da se' (l'unica aperta, o nessuna).
         if con_storico:
-            scrivi_nota(conn, loc_id, kind, direction, text, email, ts, ts, task_id=task_id)
+            scrivi_nota(conn, loc_id, kind, direction, text, email, ts, ts, task_id=task_id,
+                        gig_id=gig_toccata)
         if dati_nuovo:
             # Il compito nuovo sta sull'opportunita' che il pannellino ha
             # appena aperto o aggiornato; se non ne ha toccata nessuna, su
@@ -4573,6 +4618,24 @@ def fetch_location(conn, ws, loc_id):
     )
 
 
+def normalizza_mesi(value):
+    """I mesi di programmazione come li scrive il database: due cifre, in
+    ordine, senza doppioni, separati da virgola. Arrivano come lista o come
+    stringa; vuoto e' NULL, lo stesso niente con cui nasce un palco."""
+    if value is None:
+        return None
+    pezzi = value if isinstance(value, (list, tuple)) else str(value).split(",")
+    mesi = set()
+    for p in pezzi:
+        p = str(p).strip()
+        if not p:
+            continue
+        if not p.isdigit() or not 1 <= int(p) <= 12:
+            raise ApiError(400, "Mese di programmazione non valido")
+        mesi.add(int(p))
+    return ",".join("%02d" % m for m in sorted(mesi)) or None
+
+
 def clean_location_payload(body, partial):
     data = {}
     for field in LOCATION_FIELDS:
@@ -4590,6 +4653,8 @@ def clean_location_payload(body, partial):
             if value and value not in MANUAL_LOCATION_STATUSES:
                 raise ApiError(400, "Stato non valido")
             value = value or LEAD_STATUS
+        elif field == "programming_months":
+            value = normalizza_mesi(value)
         elif field == "next_contact_date":
             # Vuoto vuol dire "non ricontattarli": si scrive NULL, non "",
             # cosi' e' lo stesso niente con cui nasce un palco e le
@@ -4789,14 +4854,23 @@ def add_note(conn, ws, loc_id, body, email=None):
     return fetch_location(conn, ws, loc_id)
 
 
-def scrivi_nota(conn, loc_id, kind, direction, text, email, quando, ts, task_id=None):
+def scrivi_nota(conn, loc_id, kind, direction, text, email, quando, ts, task_id=None,
+                gig_id=None):
     """La parte di add_note che scrive, senza commit: la usa anche la
     chiusura di un compito. task_id e' il compito da cui arriva la riga,
-    quando arriva da li'."""
-    # L'attivita' si lega alla serata aperta *adesso*: chiamata dopo aver
-    # aperto un'opportunita', si attacca a quella appena nata.
-    gig = current_gig_row(conn, loc_id)
-    aperta = gig if (gig is not None and gig["closed_at"] is None) else None
+    quando arriva da li'; gig_id l'opportunita' a cui legarla, quando chi
+    chiama lo sa."""
+    # Senza un'opportunita' indicata, l'attivita' si lega a quella aperta
+    # *adesso*, ma solo se e' una: con due aperte (dal 3 ottobre 2026) non
+    # si sa a quale si riferisca la telefonata, e indovinare vorrebbe dire
+    # attaccarla a quella sbagliata la meta' delle volte. Resta sul palco.
+    if gig_id is not None:
+        aperta = {"id": gig_id}
+    else:
+        aperte = conn.execute(
+            "SELECT id FROM gigs WHERE location_id = ? AND closed_at IS NULL", (loc_id,)
+        ).fetchall()
+        aperta = aperte[0] if len(aperte) == 1 else None
     # Chi l'ha segnata: in una band in cui scrivono in tre, "chiamato" senza
     # un nome accanto non dice a chi chiedere com'e' andata. Si prende dalla
     # sessione e non dal corpo della richiesta: e' un fatto, non un campo.
@@ -6480,6 +6554,26 @@ def delete_my_band(conn, ctx, ws_id):
     ).fetchone()["n"]
     if others:
         raise ApiError(400, "Ci sono altri membri in questa band: rimuovili prima di eliminarla")
+    file_orfani = cancella_band(conn, ws_id)
+    conn.commit()
+    togli_file(file_orfani)
+
+
+def cancella_band(conn, ws_id):
+    """Toglie una band con tutto quello che contiene, senza commit e senza
+    domande: i controlli li fa chi chiama. Restituisce i file delle foto
+    (palchi e art director) da togliere dal disco, cosa che si fa solo dopo
+    il commit — se la transazione salta, le foto devono esserci ancora."""
+    file_orfani = [
+        (PHOTOS_DIR, r["filename"]) for r in conn.execute(
+            "SELECT p.filename FROM photos p JOIN locations l ON l.id = p.location_id "
+            "WHERE l.workspace_id = ?", (ws_id,)
+        ).fetchall() if r["filename"]
+    ] + [
+        (PHOTOS_AD_DIR, r["photo"]) for r in conn.execute(
+            "SELECT photo FROM art_directors WHERE workspace_id = ?", (ws_id,)
+        ).fetchall() if r["photo"]
+    ]
     conn.execute("DELETE FROM workspace_members WHERE workspace_id = ?", (ws_id,))
     conn.execute("DELETE FROM invites WHERE workspace_id = ?", (ws_id,))
     for table in WORKSPACE_SCOPED_TABLES:
@@ -6489,7 +6583,147 @@ def delete_my_band(conn, ctx, ws_id):
         "UPDATE user_profiles SET active_workspace_id = NULL WHERE active_workspace_id = ?",
         (ws_id,),
     )
+    return file_orfani
+
+
+def togli_file(file_orfani):
+    for cartella, nome in file_orfani:
+        try:
+            os.remove(os.path.join(cartella, nome))
+        except OSError:
+            pass
+
+
+def fetch_app_users(conn, ctx):
+    """Tutti quelli che hanno fatto l'accesso almeno una volta, di tutte le
+    band: e' l'elenco dell'Admin, non quello dei membri della band attiva.
+    Per ogni band di ciascuno ci sono anche gli altri componenti, perche'
+    e' la domanda da farsi prima di eliminarla: chi altro ci lavora."""
+    utenti = [dict(r) for r in conn.execute(
+        "SELECT email, name, picture, created_at, last_seen_at FROM user_profiles "
+        "ORDER BY created_at"
+    ).fetchall()]
+    nomi = {u["email"]: u["name"] for u in utenti}
+    for u in utenti:
+        bands = []
+        for b in conn.execute(
+            "SELECT w.id, w.name, m.role FROM workspace_members m "
+            "JOIN workspaces w ON w.id = m.workspace_id WHERE m.email = ? ORDER BY w.name",
+            (u["email"],),
+        ).fetchall():
+            b = dict(b)
+            b["venue_count"] = conn.execute(
+                "SELECT COUNT(*) AS n FROM locations WHERE workspace_id = ? AND deleted_at IS NULL",
+                (b["id"],),
+            ).fetchone()["n"]
+            b["others"] = [
+                {"email": r["email"], "name": nomi.get(r["email"]), "role": r["role"]}
+                for r in conn.execute(
+                    "SELECT email, role FROM workspace_members "
+                    "WHERE workspace_id = ? AND email != ? ORDER BY joined_at",
+                    (b["id"], u["email"]),
+                ).fetchall()
+            ]
+            bands.append(b)
+        u["bands"] = bands
+        u["is_me"] = u["email"] == (ctx.email or "")
+        u["is_admin"] = is_admin(u["email"])
+    return utenti
+
+
+def fetch_app_bands(conn):
+    """Tutte le band dell'installazione con due conti: quante persone e
+    quanti palchi (quelli nel cestino no). Comprese quelle rimaste senza
+    nessuno, che altrimenti non si vedrebbero da nessuna parte."""
+    return [dict(r) for r in conn.execute(
+        "SELECT w.id, w.name, w.genre, w.city, w.created_at, "
+        "(SELECT COUNT(*) FROM workspace_members m WHERE m.workspace_id = w.id) AS member_count, "
+        "(SELECT COUNT(*) FROM locations l WHERE l.workspace_id = w.id AND l.deleted_at IS NULL) AS venue_count "
+        "FROM workspaces w ORDER BY w.name COLLATE NOCASE"
+    ).fetchall()]
+
+
+def delete_app_user(conn, ctx, email):
+    """Elimina un utente dall'app. Le sue band restano: una band si
+    porterebbe via tutti i suoi palchi, e dall'Admin non si cancella
+    (scelta di Stefano, 3 ottobre 2026).
+
+    Una band in cui l'utente era l'unico Leader passa al componente entrato
+    per primo, altrimenti nessuno potrebbe piu' invitare o togliere
+    qualcuno. Una band che resta senza nessuno non si cancella da sola,
+    come quando l'ultimo esce: i dati restano nel database, invisibili.
+
+    Le righe che l'utente ha scritto (proprietario di un palco, autore di
+    una nota, compiti assegnati) restano: sono la storia della band, non
+    sua. Se rifa' l'accesso con Google rientra come utente nuovo, senza
+    band."""
+    email = (email or "").strip().lower()
+    if not email:
+        raise ApiError(400, "Manca l'utente da eliminare")
+    if email == (ctx.email or "").strip().lower():
+        raise ApiError(400, "Non puoi eliminare te stesso")
+    esiste = conn.execute(
+        "SELECT 1 FROM user_profiles WHERE email = ? UNION "
+        "SELECT 1 FROM workspace_members WHERE email = ?", (email, email)
+    ).fetchone()
+    if not esiste:
+        raise ApiError(404, "Utente non trovato")
+    sue = [r["workspace_id"] for r in conn.execute(
+        "SELECT workspace_id FROM workspace_members WHERE email = ?", (email,)
+    ).fetchall()]
+    for ws_id in sue:
+        if member_role(conn, ws_id, email) == "leader" and count_leaders(conn, ws_id) <= 1:
+            erede = conn.execute(
+                "SELECT email FROM workspace_members WHERE workspace_id = ? AND email != ? "
+                "ORDER BY joined_at LIMIT 1", (ws_id, email)
+            ).fetchone()
+            if erede:
+                conn.execute(
+                    "UPDATE workspace_members SET role = 'leader' "
+                    "WHERE workspace_id = ? AND email = ?", (ws_id, erede["email"])
+                )
+    for tabella in ("workspace_members", "sessions", "push_subscriptions",
+                    "location_favorites", "task_reminders", "user_profiles"):
+        conn.execute(f"DELETE FROM {tabella} WHERE email = ?", (email,))
     conn.commit()
+
+
+def copia_di_sicurezza(conn, motivo):
+    """Una copia intera del database accanto all'originale, prima di una
+    cancellazione che dall'app non si puo' disfare. Stesso nome delle copie
+    fatte a mano prima dei deploy: crm.db.bak.<motivo>.<data>."""
+    nome = "%s.bak.%s.%s" % (DB_PATH, motivo, datetime.now().strftime("%Y%m%d%H%M%S"))
+    dest = sqlite3.connect(nome)
+    try:
+        conn.backup(dest)
+    finally:
+        dest.close()
+    return nome
+
+
+def delete_app_band(conn, ctx, ws_id):
+    """Elimina dall'Admin una band rimasta senza componenti, con tutto
+    quello che contiene (chiesto da Stefano il 3 ottobre 2026). Una band
+    con anche un solo componente non si elimina: prima si eliminano le
+    persone, da Admin › Utenti.
+
+    Prima di toccare qualcosa si fa una copia del database: palchi e serate
+    di una band eliminata dall'app non tornano."""
+    if not conn.execute("SELECT 1 FROM workspaces WHERE id = ?", (ws_id,)).fetchone():
+        raise ApiError(404, "Band non trovata")
+    n = conn.execute(
+        "SELECT COUNT(*) AS n FROM workspace_members WHERE workspace_id = ?", (ws_id,)
+    ).fetchone()["n"]
+    if n:
+        raise ApiError(
+            400,
+            "La band ha ancora %d %s: si elimina solo quando è vuota"
+            % (n, "componente" if n == 1 else "componenti"),
+        )
+    copia_di_sicurezza(conn, "pre-elimina-band")
+    file_orfani = cancella_band(conn, ws_id)
+    conn.commit()
+    togli_file(file_orfani)
 
 
 def switch_workspace(conn, ctx, ws_id):
@@ -6966,8 +7200,9 @@ def _report_rows(conn, where, args):
         "LEFT JOIN user_profiles p ON p.email = r.email "
         "LEFT JOIN workspaces w ON w.id = r.workspace_id "
         + where +
-        # Quelle da valutare in cima: sono le uniche su cui c'e' qualcosa da fare.
-        " ORDER BY (r.status != 'da_valutare'), r.created_at DESC",
+        # Le aperte in cima, prima le nuove: sono le uniche su cui c'e'
+        # qualcosa da fare.
+        " ORDER BY (r.status NOT IN ('nuovo', 'da_valutare')), (r.status != 'nuovo'), r.created_at DESC",
         args,
     ).fetchall()
     return [dict(r) for r in rows]
@@ -7011,28 +7246,132 @@ def create_report(conn, ctx, body):
     ts = now_iso()
     cur = conn.execute(
         "INSERT INTO reports (text, kind, status, email, workspace_id, build, created_at, updated_at) "
-        "VALUES (?, ?, 'da_valutare', ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, 'nuovo', ?, ?, ?, ?, ?)",
         (text, kind, ctx.email, ctx.ws, build, ts, ts),
     )
     conn.commit()
-    return _report_rows(conn, "WHERE r.id = ?", (cur.lastrowid,))[0]
+    creata = _report_rows(conn, "WHERE r.id = ?", (cur.lastrowid,))[0]
+    # Dopo il commit, e senza che un errore possa far fallire la richiesta:
+    # la segnalazione e' salva anche se la notifica non parte.
+    try:
+        notify_segnalazione(conn, creata)
+    except Exception as e:
+        print("  Notifica della segnalazione non partita: %s" % e)
+    return creata
 
 
 def update_report(conn, ctx, report_id, body):
-    """Solo l'amministratore dell'app cambia lo stato: e' lui che decide se
-    una cosa si fa. Chi l'ha scritta la vede cambiare, non la cambia."""
+    """Solo l'amministratore dell'app cambia una segnalazione: e' lui che
+    decide se una cosa si fa. Chi l'ha scritta la vede cambiare, non la
+    cambia.
+
+    Lo stato, il tipo e il testo si cambiano insieme o uno per volta: le app
+    vecchie mandano solo lo stato. Correggere il testo non butta via quello
+    scritto da chi l'ha mandata: la prima correzione lo mette da parte in
+    original_text (scelta di Stefano, 3 ottobre 2026)."""
     require_admin(ctx)
-    row = conn.execute("SELECT id FROM reports WHERE id = ?", (report_id,)).fetchone()
+    row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
     if not row:
         raise ApiError(404, "Segnalazione non trovata")
-    status = (body.get("status") or "").strip()
-    if status not in REPORT_STATUSES:
-        raise ApiError(400, "Stato non valido")
     ts = now_iso()
-    chiusa = status != "da_valutare"
+    campi, valori = ["updated_at = ?"], [ts]
+    if "status" in body:
+        status = (body.get("status") or "").strip()
+        if status not in REPORT_STATUSES:
+            raise ApiError(400, "Stato non valido")
+        chiusa = status not in REPORT_APERTE
+        campi += ["status = ?", "resolved_at = ?", "resolved_by = ?"]
+        valori += [status, ts if chiusa else None, ctx.email if chiusa else None]
+    if "kind" in body:
+        kind = (body.get("kind") or "").strip()
+        if kind not in REPORT_KINDS:
+            raise ApiError(400, "Scegli se è un'anomalia o un suggerimento")
+        campi.append("kind = ?"); valori.append(kind)
+    if "text" in body:
+        text = (body.get("text") or "").strip()
+        if not text:
+            raise ApiError(400, "Il testo non può restare vuoto")
+        if len(text) > MAX_REPORT_CHARS:
+            raise ApiError(400, "Segnalazione troppo lunga")
+        if text != row["text"]:
+            campi += ["text = ?", "edited_at = ?", "edited_by = ?"]
+            valori += [text, ts, ctx.email]
+            if row["original_text"] is None:
+                campi.append("original_text = ?"); valori.append(row["text"])
+    if len(campi) == 1:
+        raise ApiError(400, "Niente da cambiare")
+    conn.execute("UPDATE reports SET " + ", ".join(campi) + " WHERE id = ?", valori + [report_id])
+    conn.commit()
+    return _report_rows(conn, "WHERE r.id = ?", (report_id,))[0]
+
+
+def delete_report(conn, ctx, report_id):
+    """Elimina una segnalazione (solo l'admin, 3 ottobre 2026). Sparisce per
+    tutti, anche per chi l'ha scritta; se era stata inoltrata, la issue su
+    GitHub resta dov'e'."""
+    require_admin(ctx)
+    if not conn.execute("SELECT 1 FROM reports WHERE id = ?", (report_id,)).fetchone():
+        raise ApiError(404, "Segnalazione non trovata")
+    conn.execute("DELETE FROM reports WHERE id = ?", (report_id,))
+    conn.commit()
+
+
+def report_to_issue(conn, ctx, report_id, body):
+    """Inoltra una segnalazione come issue su GitHub (3 ottobre 2026).
+
+    Il repository e' pubblico: nel corpo va solo il testo (quello corretto,
+    se l'hai corretto) e da dove arriva — tipo, numero e build — mai chi
+    l'ha scritta ne' la sua band. Etichette: bug o enhancement secondo il
+    tipo, piu' to-analyze (scelta di Stefano: e' da valutare, ready la
+    mette lui). Una segnalazione si inoltra una volta sola."""
+    require_admin(ctx)
+    if not GITHUB_TOKEN:
+        raise ApiError(400, "L'inoltro su GitHub non è configurato: manca GITHUB_TOKEN nel file .env del server")
+    row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
+    if not row:
+        raise ApiError(404, "Segnalazione non trovata")
+    if row["issue_number"]:
+        raise ApiError(409, "Questa segnalazione è già su GitHub: issue #%d" % row["issue_number"])
+    testo = (row["text"] or "").strip()
+    titolo = (body.get("title") or "").strip() or testo.splitlines()[0]
+    if len(titolo) > 80:
+        titolo = titolo[:79].rstrip() + "…"
+    tipo = "Anomalia" if row["kind"] == "anomalia" else "Suggerimento"
+    corpo = "%s\n\n---\n_Dall'app MioPalco: %s, segnalazione n. %d%s._" % (
+        testo, tipo.lower(), row["id"], (", build " + row["build"]) if row["build"] else "")
+    etichette = ["bug" if row["kind"] == "anomalia" else "enhancement", "to-analyze"]
+    req = urllib.request.Request(
+        "https://api.github.com/repos/%s/issues" % GITHUB_REPO,
+        data=json.dumps({"title": titolo, "body": corpo, "labels": etichette}).encode("utf-8"),
+        headers={
+            "Authorization": "Bearer " + GITHUB_TOKEN,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "MioPalco",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            issue = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        dettaglio = ""
+        try:
+            dettaglio = json.loads(e.read().decode("utf-8")).get("message", "")
+        except Exception:
+            pass
+        print("[github] issue non creata: %s %s" % (e.code, dettaglio))
+        if e.code in (401, 403):
+            raise ApiError(502, "GitHub ha rifiutato il token: controlla che sia valido e abbia il permesso Issues su " + GITHUB_REPO)
+        raise ApiError(502, "GitHub non ha creato la issue (%s %s)" % (e.code, dettaglio))
+    except Exception as e:
+        print("[github] issue non creata: %s" % e)
+        raise ApiError(502, "GitHub non risponde: riprova fra poco")
+    ts = now_iso()
     conn.execute(
-        "UPDATE reports SET status = ?, updated_at = ?, resolved_at = ?, resolved_by = ? WHERE id = ?",
-        (status, ts, ts if chiusa else None, ctx.email if chiusa else None, report_id),
+        "UPDATE reports SET issue_number = ?, issue_url = ?, issue_at = ?, updated_at = ? WHERE id = ?",
+        (issue.get("number"), issue.get("html_url"), ts, ts, report_id),
     )
     conn.commit()
     return _report_rows(conn, "WHERE r.id = ?", (report_id,))[0]
@@ -7077,12 +7416,12 @@ def export_zip(conn):
         ["id", "band", "nome", "tipo", "categoria", "contesto", "stagionalita", "periodo",
          "citta", "indirizzo", "lat", "lng", "capienza", "genere", "titolare", "telefono",
          "cellulare", "email", "sito", "facebook", "instagram", "art_director", "stato", "data_prossimo_contatto",
-         "promemoria", "inserito_da", "archiviato_il", "creato_il", "aggiornato_il"],
+         "mesi_programmazione", "promemoria", "inserito_da", "archiviato_il", "creato_il", "aggiornato_il"],
         [(r["id"], r["band"], r["name"], r["type"], r["category"], r["context"], r["seasonality"],
           r["live_period"], r["city"], r["address"], r["lat"], r["lng"], r["capacity"], r["genre"],
           r["contact_name"], r["landline"], r["phone"], r["email"], r["website"],
           r["facebook"], r["instagram"], r["ad"],
-          r["status"], r["next_contact_date"], r["planning_note"],
+          r["status"], r["next_contact_date"], r["programming_months"], r["planning_note"],
           r["owner_email"], r["deleted_at"],
           r["created_at"], r["updated_at"])
          for r in _query(conn,
@@ -7543,6 +7882,28 @@ def _h_update_template(conn, match, query, body, ctx):
     return 200, update_template(conn, int(match.group(1)), body)
 
 
+def _h_app_users(conn, match, query, body, ctx):
+    require_admin(ctx)
+    return 200, fetch_app_users(conn, ctx)
+
+
+def _h_delete_app_user(conn, match, query, body, ctx):
+    require_admin(ctx)
+    delete_app_user(conn, ctx, body.get("email"))
+    return 200, fetch_app_users(conn, ctx)
+
+
+def _h_app_bands(conn, match, query, body, ctx):
+    require_admin(ctx)
+    return 200, fetch_app_bands(conn)
+
+
+def _h_delete_app_band(conn, match, query, body, ctx):
+    require_admin(ctx)
+    delete_app_band(conn, ctx, int(match.group(1)))
+    return 200, fetch_app_bands(conn)
+
+
 def _h_delete_template(conn, match, query, body, ctx):
     require_admin(ctx)
     delete_template(conn, int(match.group(1)))
@@ -7615,6 +7976,15 @@ def _h_update_venue_category(conn, match, query, body, ctx):
 def _h_list_reports(conn, match, query, body, ctx):
     tutte = (query.get("scope") or [""])[0] == "all"
     return 200, fetch_reports(conn, ctx, tutte)
+
+
+def _h_delete_report(conn, match, query, body, ctx):
+    delete_report(conn, ctx, int(match.group(1)))
+    return 204, {}
+
+
+def _h_report_issue(conn, match, query, body, ctx):
+    return 200, report_to_issue(conn, ctx, int(match.group(1)), body or {})
 
 
 def _h_create_report(conn, match, query, body, ctx):
@@ -7727,16 +8097,6 @@ def _h_telegram_stato(conn, match, query, body, ctx):
 def _h_telegram_set(conn, match, query, body, ctx):
     require_admin(ctx)
     return 200, set_telegram_admin(conn, bool((body or {}).get("on")), ctx.email)
-
-
-def _h_agenda_stato(conn, match, query, body, ctx):
-    require_admin(ctx)
-    return 200, {"old_lists": AGENDA_LISTE_VECCHIE}
-
-
-def _h_agenda_set(conn, match, query, body, ctx):
-    require_admin(ctx)
-    return 200, set_agenda_liste_vecchie(conn, bool((body or {}).get("old_lists")), ctx.email)
 
 
 def _h_promemoria_stato(conn, match, query, body, ctx):
@@ -7891,12 +8251,14 @@ ROUTES = [
     ("GET", re.compile(r"^/api/push/config$"), _h_push_config),
     ("POST", re.compile(r"^/api/push/subscribe$"), _h_push_subscribe),
     ("POST", re.compile(r"^/api/push/unsubscribe$"), _h_push_unsubscribe),
+    ("GET", re.compile(r"^/api/admin/users$"), _h_app_users),
+    ("POST", re.compile(r"^/api/admin/users/delete$"), _h_delete_app_user),
+    ("GET", re.compile(r"^/api/admin/bands$"), _h_app_bands),
+    ("DELETE", re.compile(r"^/api/admin/bands/(\d+)$"), _h_delete_app_band),
     ("GET", re.compile(r"^/api/admin/push/people$"), _h_push_people),
     ("GET", re.compile(r"^/api/admin/telegram$"), _h_telegram_stato),
     ("PUT", re.compile(r"^/api/admin/telegram$"), _h_telegram_set),
     ("POST", re.compile(r"^/api/admin/push/test$"), _h_push_test),
-    ("GET", re.compile(r"^/api/admin/agenda$"), _h_agenda_stato),
-    ("PUT", re.compile(r"^/api/admin/agenda$"), _h_agenda_set),
     ("GET", re.compile(r"^/api/admin/promemoria$"), _h_promemoria_stato),
     ("PUT", re.compile(r"^/api/admin/promemoria$"), _h_promemoria_set),
     ("POST", re.compile(r"^/api/admin/promemoria/run$"), _h_promemoria_run),
@@ -7913,6 +8275,8 @@ ROUTES = [
     ("GET", re.compile(r"^/api/reports$"), _h_list_reports),
     ("POST", re.compile(r"^/api/reports$"), _h_create_report),
     ("PUT", re.compile(r"^/api/reports/(\d+)$"), _h_update_report),
+    ("POST", re.compile(r"^/api/admin/reports/(\d+)/issue$"), _h_report_issue),
+    ("DELETE", re.compile(r"^/api/admin/reports/(\d+)$"), _h_delete_report),
     ("GET", re.compile(r"^/api/venue_lists/([a-z_]+)$"), _h_list_venue_list),
     ("POST", re.compile(r"^/api/venue_lists/([a-z_]+)$"), _h_create_venue_list_value),
     ("PUT", re.compile(r"^/api/venue_lists/([a-z_]+)/(\d+)$"), _h_update_venue_list_value),

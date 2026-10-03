@@ -261,11 +261,8 @@
      "Da pianificare" e' la parola piu' lunga e decide per tutte. */
   .view-toggle.quattro{padding:2px;gap:1px;}
   .view-toggle.quattro .view-toggle-btn{font-size:12px;padding:9px 1px;white-space:nowrap;}
-  /* Cinque, quando l'Admin rimette in Agenda le due code vecchie accanto a
-     Pianificazioni: un altro punto in meno, o l'ultima esce dallo schermo. */
-  .view-toggle.quattro.cinque .view-toggle-btn{font-size:10.5px;padding:9px 0;}
-  /* display:flex batte [hidden]: senza, i due segmenti nascosti dall'Admin
-     restavano in vista, solo sordi al tocco. */
+  /* display:flex batte [hidden]: senza, un segmento nascosto resterebbe
+     in vista, solo sordo al tocco. */
   .view-toggle-btn[hidden]{display:none;}
   /* ---------- le due pastiglie di "Da pianificare" ---------- */
   /* La grafica e' quella che avevano i trimestri in Agenda: pastiglie che si
@@ -278,9 +275,6 @@
   .filtro-chip.vuoto{color:var(--text-tertiary);}
   .filtro-chip.active{background:var(--tint);color:#fff;}
   .filtro-chip.active .cnt{color:rgba(255,255,255,.75);}
-  /* L'occhio nella riga: piccolo e nel colore dell'app, serve solo a dire
-     quali righe resterebbero accendendo il filtro Focus. */
-  .plan-focus{color:var(--tint);vertical-align:-2px;margin-right:5px;}
   .map-view{flex:1;position:relative;z-index:0;background:var(--fill);}
   #mapCanvas{position:absolute;inset:0;}
   /* Il colore del segnalino e' quello dello stato, lo stesso della pastiglia
@@ -425,6 +419,7 @@
   /* Declinato ha il colore della sua pastiglia: non e' un no rosso — non
      toglie niente — ed e' un finale diverso da Fatto, che e' verde. */
   .row-actions button.declina{background:var(--brown);}
+
 
   .row{display:flex;align-items:center;gap:10px;padding:11px 16px;min-height:44px;background:var(--bg-elevated);cursor:pointer;}
   .row:active{background:var(--fill);}
@@ -731,21 +726,6 @@
   /* Il pulsante in coda a una riga dell'agenda: adesso ne e' rimasto uno
      solo, "Quando?" su "Da pianificare". Il nome viene da "Riproponi", che
      stava qui prima. */
-  /* Il pulsante "Ricontatta" nella riga di "Da pianificare": una pastiglia
-     con su scritto cosa fa, e il calendario del telefono steso sopra,
-     trasparente. Il campo data nudo era la cosa sbagliata due volte —
-     vuoto sembrava un pulsante rosso senza scritta, e il tocco passava
-     sotto e apriva la scheda invece del calendario.
-
-     Prende il posto di .renew-btn, il pulsante "Quando?" che apriva il
-     foglio dei mesi: con una data intera quel foglio sarebbe stato lungo
-     trecentosessantacinque voci. */
-  .plan-date{position:relative;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:var(--tint-soft);color:var(--tint);font-size:13px;font-weight:600;font-family:inherit;padding:9px 13px;cursor:pointer;white-space:nowrap;}
-  .plan-date:active{opacity:.7;}
-  /* Trasparente ma sopra a tutto: il dito lo prende lui, e il calendario si
-     apre da solo. Senza inset:0 il bersaglio sarebbe il rettangolino del
-     campo, che su iPhone e' meta' della pastiglia. */
-  .plan-date-input{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:none;background:none;padding:0;cursor:pointer;-webkit-appearance:none;appearance:none;}
   /* ---- Home: tessere e grafici. Nessuna libreria: barre in CSS, cosi'
      seguono i temi chiaro/scuro come tutto il resto e non c'e' niente da
      scaricare su un telefono in giro per locali. ---- */
@@ -1101,6 +1081,11 @@
         <span class="nav-btn nav-btn-spacer"></span>
         <span class="inline-title">Opportunità</span>
         <div class="navbar-trailing">
+          <!-- Il + apre in cima all'elenco il modulo di un'opportunità nuova,
+               con il palco da scegliere (3 ottobre 2026). -->
+          <button class="nav-btn" id="btnAddGig" aria-label="Aggiungi opportunità">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
           <button class="nav-btn" id="btnGigsFilter" aria-label="Filtri" title="Filtri">
             <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 4 21 4 14 12.5 14 19.5 10 21.5 10 12.5"/></svg>
             <span class="filter-dot" id="gigsFilterDot" hidden></span>
@@ -1124,6 +1109,7 @@
       <div class="filtro-bar" id="gigsScopeToggle"></div>
     </header>
     <div class="screen-scroll" id="scrollGigs">
+      <div id="gigsNewFields" hidden></div>
       <div id="allGigsList"></div>
     </div>
   </section>
@@ -1158,25 +1144,15 @@
       <div class="view-toggle-wrap">
         <div class="view-toggle tre quattro" id="agendaToggle">
           <button class="view-toggle-btn active" data-agenda="tasks">Compiti</button>
-          <button class="view-toggle-btn" data-agenda="pianif">Pianificazioni</button>
-          <!-- Nascoste per tutti finche' l'Admin non le rimette (applyAgendaOldLists). -->
-          <button class="view-toggle-btn" data-agenda="recontact" hidden>Da contattare</button>
-          <button class="view-toggle-btn" data-agenda="plan" hidden>Da pianificare</button>
+          <button class="view-toggle-btn" data-agenda="pianif">Programmazioni</button>
           <button class="view-toggle-btn" data-agenda="gigs">Serate</button>
         </div>
       </div>
     </header>
     <div class="screen-scroll" id="scrollRecontact">
-      <div id="agendaPaneRecontact" hidden>
-          <div id="recontactList"></div>
-      </div>
       <div id="agendaPanePianif" hidden>
-        <div class="scope-note">Nei prossimi 3 mesi questi palchi pianificheranno il loro calendario</div>
+        <div class="scope-note">I palchi che preparano il calendario delle serate in questo mese e nei due dopo. Chi programma in più mesi compare sotto ognuno.</div>
         <div id="pianifList"></div>
-      </div>
-      <div id="agendaPanePlan" hidden>
-        <div class="filtro-bar" id="planFilterBar"></div>
-        <div id="planList"></div>
       </div>
       <div id="agendaPaneTasks">
         <div class="filtro-bar" id="tasksFilterBar"></div>
@@ -1228,7 +1204,7 @@
        giorni — ed e' uscito lui, come aveva gia' fatto l'Admin. Si apre da
        una voce in Impostazioni; dalla scheda del palco ci si arriva
        come prima. -->
-  <section class="screen pushed" id="adScreen" hidden>
+  <section class="screen pushed" id="adScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnAdScreenBack">
@@ -1267,7 +1243,7 @@
   <!-- ============ PUSHED: ADMIN ============
        Era un tab: con la Home le voci nella tabbar erano troppe, ed e' una
        funzione che vede solo chi amministra l'app. Si apre da Altro. -->
-  <section class="screen pushed" id="adminScreen" hidden>
+  <section class="screen pushed" id="adminScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnAdminBack">
@@ -1279,6 +1255,22 @@
       </div>
     </header>
     <div class="screen-scroll">
+      <div class="section-header">UTENTI DELL’APP</div>
+      <div class="grouped-list">
+        <div class="row" id="rowAdminUsers">
+          <div class="row-main"><div class="row-title">Utenti</div>
+          <div class="row-sub">Chi ha fatto l’accesso, in tutte le band</div></div>
+          <div class="row-trail"><span class="row-badge" id="adminUsersCount" style="background:var(--fill);color:var(--text-secondary);"></span>
+          <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
+        </div>
+        <div class="row" id="rowAdminBands">
+          <div class="row-main"><div class="row-title">Band</div>
+          <div class="row-sub">Quanti utenti e quanti palchi ha ciascuna</div></div>
+          <div class="row-trail"><span class="row-badge" id="adminBandsCount" style="background:var(--fill);color:var(--text-secondary);"></span>
+          <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
+        </div>
+      </div>
+
       <div class="section-header">TEMPLATE PER LE BAND NUOVE</div>
       <div class="grouped-list">
         <div class="row" id="rowAdminTypes">
@@ -1349,18 +1341,6 @@
       </div>
       <div id="geoReport" hidden></div>
 
-      <div class="section-header">AGENDA</div>
-      <div class="grouped-list">
-        <div class="field-row">
-          <label for="agendaOldListsToggle" style="flex:1;">Nascondi «Da contattare» e «Da pianificare»</label>
-          <label class="ios-switch">
-            <input type="checkbox" id="agendaOldListsToggle" checked>
-            <span class="ios-switch-track"><span class="ios-switch-thumb"></span></span>
-          </label>
-        </div>
-      </div>
-      <div class="section-footer">Le due schede dell’Agenda che c’erano prima di Pianificazioni. Acceso, non le vede nessuno; spento, tornano per tutti accanto alle altre. Vale alla prossima apertura dell’app di ciascuno.</div>
-
       <div class="section-header">NOTIFICHE TELEGRAM</div>
       <div class="grouped-list">
         <div class="field-row">
@@ -1415,7 +1395,7 @@
   </section>
 
   <!-- ============ PUSHED: ELENCO TEMPLATE ============ -->
-  <section class="screen pushed" id="adminListScreen" hidden>
+  <section class="screen pushed" id="adminListScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnAdminListBack">
@@ -1550,6 +1530,15 @@
           <div class="row-sub">Notifiche, tema, gesti</div></div>
           <div class="row-trail"><svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
         </div>
+        <!-- Segnalazioni stava in Informazioni sull'app fino al 3 ottobre
+             2026: spostata qui su richiesta di Stefano. Gli id sono quelli
+             di prima (rowAboutReports...), quindi conteggio e tocco pure. -->
+        <div class="row" id="rowAboutReports">
+          <div class="row-main"><div class="row-title">Segnalazioni</div>
+          <div class="row-sub" id="aboutReportsSub">Qualcosa non va, o manca?</div></div>
+          <div class="row-trail"><span class="row-badge" id="aboutReportsCount" style="background:var(--fill);color:var(--text-secondary);"></span>
+          <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
+        </div>
         <div class="row" id="rowSettingsAbout">
           <div class="row-main"><div class="row-title">Informazioni sull'app</div></div>
           <div class="row-trail"><svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
@@ -1575,7 +1564,7 @@
        compilando un palco o un costo. Stavano in cima alle Impostazioni,
        meta' schermo, e sono le voci che si toccano di meno: qui dentro
        stanno a un tocco in piu', e Altro resta per quello che si usa. -->
-  <section class="screen pushed" id="tablesScreen" hidden>
+  <section class="screen pushed" id="tablesScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnTablesBack">
@@ -1643,7 +1632,7 @@
        Le impostazioni vere, quelle di chi usa l'app su questo dispositivo:
        notifiche, tema e il gesto per aggiornare, che stava nell'Admin ma
        vale solo qui. -->
-  <section class="screen pushed" id="prefsScreen" hidden>
+  <section class="screen pushed" id="prefsScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnPrefsBack">
@@ -1691,7 +1680,7 @@
   </section>
 
   <!-- ============ PUSHED: COPERTINE DA FACEBOOK ============ -->
-  <section class="screen pushed" id="socialCoversScreen" hidden>
+  <section class="screen pushed" id="socialCoversScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnSocialCoversBack">
@@ -1730,7 +1719,7 @@
   </section>
 
   <!-- ============ PUSHED: TIPOLOGIE ============ -->
-  <section class="screen pushed" id="typesScreen" hidden>
+  <section class="screen pushed" id="typesScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnTypesBack">
@@ -1782,7 +1771,7 @@
   </section>
 
   <!-- ============ PUSHED: CATEGORIE ============ -->
-  <section class="screen pushed" id="categoriesScreen" hidden>
+  <section class="screen pushed" id="categoriesScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnCategoriesBack">
@@ -1825,15 +1814,15 @@
   </section>
 
   <!-- ============ PUSHED: SEGNALAZIONI ============ -->
-  <section class="screen pushed" id="reportsScreen" hidden>
+  <section class="screen pushed" id="reportsScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnReportsBack">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-          Informazioni
+          Altro
         </button>
         <span class="inline-title">Segnalazioni</span>
-        <span class="nav-btn" style="visibility:hidden;">Informazioni</span>
+        <span class="nav-btn" style="visibility:hidden;">Altro</span>
       </div>
     </header>
     <div class="screen-scroll">
@@ -1865,7 +1854,7 @@
   </section>
 
   <!-- ============ PUSHED: SEGNALAZIONI · LAVORAZIONE (admin) ============ -->
-  <section class="screen pushed" id="adminReportsScreen" hidden>
+  <section class="screen pushed" id="adminReportsScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnAdminReportsBack">
@@ -1879,14 +1868,75 @@
     <div class="screen-scroll">
       <div class="section-header" id="adminReportsHeader">DA GUARDARE</div>
       <div class="grouped-list" id="adminReportsList"></div>
-      <div class="section-footer">Scorri a sinistra per chiudere una segnalazione: <strong>Fatto</strong> se l'hai risolta, <strong>Rifiutato</strong> se non si farà — una risposta netta vale più di un silenzio. <strong>Riapri</strong> se hai chiuso per sbaglio. Le aperte stanno in cima.</div>
+      <div class="section-footer">Scorri a sinistra per chiudere una segnalazione: <strong>Fatto</strong> se l'hai risolta, <strong>Rifiutato</strong> se non si farà — una risposta netta vale più di un silenzio. <strong>Da valutare</strong> la riapre se l'hai chiusa per sbaglio. Le aperte stanno in cima, prima le nuove; tocca una segnalazione per aprirla e cambiarle stato (Nuovo, Da valutare, Fatto, Rifiutato).</div>
     </div>
+  </section>
+
+  <!-- ============ PUSHED: UTENTI DELL'APP (admin) ============ -->
+  <section class="screen pushed" id="adminUsersScreen" data-titolo-grande hidden>
+    <header class="navbar">
+      <div class="navbar-row">
+        <button class="nav-btn" id="btnAdminUsersBack">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Admin
+        </button>
+        <span class="inline-title">Utenti</span>
+        <span class="nav-btn" style="visibility:hidden;">Admin</span>
+      </div>
+    </header>
+    <div class="screen-scroll">
+      <!-- Un gruppo per band: chi sta in due band compare in tutte e due. -->
+      <div id="adminUsersList"></div>
+      <div class="section-footer">Scorri a sinistra: <strong>Elimina</strong> toglie la persona; le sue band, con palchi e serate, restano a chi ci lavora. Una band rimasta vuota si elimina da Band. Chi viene eliminato può rifare l’accesso con Google, ma rientra senza band.</div>
+    </div>
+  </section>
+
+  <!-- ============ PUSHED: BAND DELL'APP (admin, solo da guardare) ============ -->
+  <section class="screen pushed" id="adminBandsScreen" data-titolo-grande hidden>
+    <header class="navbar">
+      <div class="navbar-row">
+        <button class="nav-btn" id="btnAdminBandsBack">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Admin
+        </button>
+        <span class="inline-title">Band</span>
+        <span class="nav-btn" style="visibility:hidden;">Admin</span>
+      </div>
+    </header>
+    <div class="screen-scroll">
+      <div class="section-header" id="adminBandsHeader">BAND</div>
+      <div class="grouped-list" id="adminBandsList"></div>
+      <div class="section-footer">Si può eliminare solo una band senza componenti: scorri a sinistra la riga con 0 utenti. Se ne va con palchi, serate, compiti e cassa, e prima viene fatta una copia del database. Per svuotare una band elimina le persone da Utenti. Contano i palchi non cestinati.</div>
+    </div>
+  </section>
+
+  <!-- ============ PUSHED: DETTAGLIO DI UNA SEGNALAZIONE (admin) ============
+       Si apre toccando una segnalazione in Admin › Segnalazioni (3 ottobre
+       2026): tipo, stato e testo si correggono e si salvano con Salva, e da
+       qui la segnalazione si inoltra come issue su GitHub. -->
+  <section class="screen pushed" id="adminReportScreen" hidden>
+    <header class="navbar">
+      <div class="navbar-row">
+        <button class="nav-btn" id="btnAdminReportBack">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Segnalazioni
+        </button>
+        <span class="inline-title" id="adminReportTitle">Segnalazione</span>
+        <div class="navbar-trailing">
+          <!-- Elimina sta qui e non scorrendo la riga: lo scorrimento da
+               sinistra a destra e' stato provato e tolto (3 ottobre 2026). -->
+          <button class="nav-btn destructive" id="btnAdminReportDelete">Elimina</button>
+          <button class="nav-btn primary" id="btnAdminReportSave">Salva</button>
+        </div>
+      </div>
+    </header>
+    <div class="screen-scroll" id="adminReportBody"></div>
   </section>
 
   <!-- ============ PUSHED: LISTA VALORI (contesto, stagionalità, periodo) ============
        Una schermata sola per tutte e tre: cambiano solo i testi, che arrivano
        da VENUE_LISTS. Tipologie e categorie hanno ancora le loro, nate prima. -->
-  <section class="screen pushed" id="venueListScreen" hidden>
+  <section class="screen pushed" id="venueListScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnVenueListBack">
@@ -1914,7 +1964,7 @@
        Schermata sua e non quella generica delle liste del palco: li'
        dentro il numero accanto al nome conta i palchi che usano quel
        valore, e qui deve contare i movimenti di cassa. -->
-  <section class="screen pushed" id="costCatScreen" hidden>
+  <section class="screen pushed" id="costCatScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnCostCatBack">
@@ -1945,7 +1995,7 @@
 
        Non c'e' niente da salvare a mano: ogni interruttore scrive subito sul
        profilo, come tutti gli elenchi delle Impostazioni. -->
-  <section class="screen pushed" id="homePrefsScreen" hidden>
+  <section class="screen pushed" id="homePrefsScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnHomePrefsBack">
@@ -1993,7 +2043,7 @@
        i tag nascono scrivendoli sulla scheda e qui si possono solo
        rinominare o togliere. Il numero accanto conta i palchi su cui
        quel tag e' scritto. -->
-  <section class="screen pushed" id="tagsScreen" hidden>
+  <section class="screen pushed" id="tagsScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnTagsBack">
@@ -2048,7 +2098,7 @@
   </section>
 
   <!-- ============ PUSHED: LE MIE BANDS ============ -->
-  <section class="screen pushed" id="myBandsScreen" hidden>
+  <section class="screen pushed" id="myBandsScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnMyBandsBack">
@@ -2103,7 +2153,7 @@
   </section>
 
   <!-- ============ PUSHED: INVITA ============ -->
-  <section class="screen pushed" id="inviteScreen" hidden>
+  <section class="screen pushed" id="inviteScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnInviteBack">
@@ -2138,7 +2188,7 @@
   </section>
 
   <!-- ============ PUSHED: MODELLI WHATSAPP ============ -->
-  <section class="screen pushed" id="waTemplatesScreen" hidden>
+  <section class="screen pushed" id="waTemplatesScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnWaTemplatesBack">
@@ -2198,7 +2248,7 @@
   <!-- ============ PUSHED: MODELLI EMAIL ============
        Gli stessi modelli dei messaggi, ma con l'oggetto: una mail senza
        oggetto e' una mail che non viene aperta. -->
-  <section class="screen pushed" id="mailTemplatesScreen" hidden>
+  <section class="screen pushed" id="mailTemplatesScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnMailTemplatesBack">
@@ -2260,7 +2310,7 @@
   </section>
 
   <!-- ============ PUSHED: INFORMAZIONI ============ -->
-  <section class="screen pushed" id="aboutScreen" hidden>
+  <section class="screen pushed" id="aboutScreen" data-titolo-grande hidden>
     <header class="navbar">
       <div class="navbar-row">
         <button class="nav-btn" id="btnAboutBack">
@@ -2285,18 +2335,8 @@
         <div class="about-update" id="aboutUpdate" hidden></div>
       </div>
       <div class="section-footer" style="text-align:center;padding:8px 32px 24px;">
-        Gestionale live per tenere traccia dei posti dove far suonare la band: locali, feste di paese, bagni al mare e altro — con anagrafica art director e promemoria di ricontatto.
+        Gestionale live per tenere traccia dei posti dove far suonare la band: locali, feste di paese, bagni al mare e altro — con anagrafica art director e i mesi in cui ogni palco programma le serate.
       </div>
-      <div class="section-header">SEGNALAZIONI</div>
-      <div class="grouped-list">
-        <div class="row" id="rowAboutReports">
-          <div class="row-main"><div class="row-title">Segnalazioni</div>
-          <div class="row-sub" id="aboutReportsSub">Qualcosa non va, o manca?</div></div>
-          <div class="row-trail"><span class="row-badge" id="aboutReportsCount" style="background:var(--fill);color:var(--text-secondary);"></span>
-          <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
-        </div>
-      </div>
-
       <div class="section-header">DATI</div>
       <div class="grouped-list">
         <div class="row" style="cursor:default;">
@@ -2742,19 +2782,19 @@
       </div>
       <div class="section-footer">Il <strong>compito</strong> descrive un'attività che va fatta. Esempi:<br>«Telefonare per capire se organizza la stagione 2027.»<br>«Mandare il video promozionale.»<br>«Appendere le locandine.»</div>
 
-      <div class="section-header">QUANDO CONTATTARE</div>
+      <div class="section-header">PROGRAMMAZIONE</div>
       <div class="grouped-list">
-        <div class="field-row">
-          <label for="fNextContact">Prossimo contatto</label>
-          <input type="date" id="fNextContact">
-          <button type="button" class="date-clear" data-clear-date aria-label="Togli la data" hidden>✕</button>
+        <div class="field-row picker" id="rowProgrammazione">
+          <label style="flex:1;">Mesi</label>
+          <div class="picker-value"><span id="progMesiValue">Nessuno</span>
+          <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
         </div>
         <div class="field-row stacked">
-          <label for="fPlanningNote">Nota sulla pianificazione</label>
+          <label for="fPlanningNote">Nota sulla programmazione</label>
           <input id="fPlanningNote" type="text" placeholder="es. Pianificano il cartellone a feb/mar" style="text-align:left;">
         </div>
       </div>
-      <div class="section-footer">Il periodo vale ogni anno: «ottobre» torna ogni ottobre, e non c'è nessun anno da correggere. Il giorno mettilo solo se conta davvero. In Agenda il palco si accende quando il periodo arriva e si spegne quando apri la serata — perché riprovarci è proprio quello.</div>
+      <div class="section-footer">I mesi in cui il palco prepara il calendario delle serate: valgono ogni anno. In Agenda › Programmazioni il palco compare sotto ognuno dei suoi mesi, quando cade fra questo mese e i due dopo.</div>
 
       <div class="section-header">PROPRIETARIO</div>
       <div class="grouped-list">
@@ -2995,9 +3035,6 @@
   var CLOSING_STATUSES = ["suonato", "annullato", "rifiutata"];
   function isClosingStatus(s){ return CLOSING_STATUSES.indexOf(s) > -1; }
 
-  /* L'occhio, lo stesso della barra in alto ma piccolo: una riga in focus
-     si riconosce senza aprire niente. */
-  var OCCHIO = '<svg class="plan-focus" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.6 12S5.2 5.2 12 5.2 22.4 12 22.4 12 18.8 18.8 12 18.8 1.6 12 1.6 12Z"/><circle cx="12" cy="12" r="3.1" fill="currentColor"/></svg>';
   var CHEVRON = '<svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg>';
 
   /* ---------------- serate ----------------
@@ -3058,37 +3095,23 @@
   var MESI = ["gennaio","febbraio","marzo","aprile","maggio","giugno",
               "luglio","agosto","settembre","ottobre","novembre","dicembre"];
   function pad2(n){ return n < 10 ? "0" + n : String(n); }
-  /* "il 15 ott 2027", come si legge in ogni altra riga dell'app. */
-  function nextContactPhrase(d){ return d ? "il " + fmtDateShort(d) : ""; }
+  /* I mesi di programmazione di un palco ("03,10") come numeri, e come si
+     leggono: "mar, ott", oppure "Tutto l’anno" se ci sono tutti. */
+  function mesiProgrammazione(str){
+    return String(str || "").split(",").map(Number)
+      .filter(function(m){ return m >= 1 && m <= 12; });
+  }
+  function mesiProgrammazioneTesto(str){
+    var m = mesiProgrammazione(str);
+    if(!m.length) return "";
+    if(m.length === 12) return "Tutto l’anno";
+    return m.map(function(x){ return MESI[x - 1].slice(0, 3); }).join(", ");
+  }
   /* La stessa data N giorni piu' in la': serve alla finestra della Home. */
   function plusDays(dateStr, n){
     var d = new Date(dateStr + "T00:00:00");
     d.setDate(d.getDate() + n);
     return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
-  }
-  /* Quando tocca, e se e' gia' passato senza che tu abbia chiamato.
-
-     Con una data intera non c'e' piu' niente da calcolare: la data e'
-     quella scritta. Quella che era una "finestra degli scaduti" — quattro
-     mesi, oltre i quali il promemoria tornava in fila con l'occorrenza
-     dell'anno dopo — non serve piu' e non avrebbe senso: una data che
-     passa non si ripresenta l'anno prossimo da sola. Resta li', in ritardo,
-     finche' non la sposti. Ed e' quello che deve fare, perche' e' la
-     telefonata che non hai fatto.
-
-     In ritardo lo dice la data e basta, come l'elenco che la contiene:
-     "Da contattare" mostra i palchi che hanno una data di ricontatto, che
-     ci sia una serata aperta o no — 63 delle 69 righe di oggi non ce
-     l'hanno. Fino al 22 settembre 2026 il grassetto guardava anche la
-     serata, e risparmiava la sgridata a chi era gia' passato a Contattato o
-     Trattativa; con lo stato "Opportunita'" tolto quella condizione non
-     poteva piu' scattare per nessuno, e Stefano ha deciso che la data
-     scaduta vale da sola. Una telefonata rimandata e' rimandata anche se la
-     trattativa sta andando bene. */
-  function recontactDue(v){
-    var d = v && v.next_contact_date;
-    if(!d) return null;
-    return {date: d, late: d < todayStr()};
   }
   function venueGigs(v){ return (v && v.gigs) ? v.gigs : []; }
   /* Le attivita' vere sono quelle registrate col tocco: una visita, una
@@ -3120,15 +3143,11 @@
     if(mesi < 24) return "ultimo contatto " + mesi + " mesi fa";
     return "ultimo contatto " + Math.floor(mesi / 12) + " anni fa";
   }
-  /* La serata in corso, se c'e'. Da quando lo stato del palco ha
-     smesso di copiarla, e' l'unico posto dove sta scritto a che punto sei
-     quest'anno: chi prima leggeva v.status per saperlo, adesso legge qui. */
-  function currentGig(v){
-    return venueGigs(v).filter(function(g){ return g.open; })[0] || null;
-  }
   /* Una stagione chiusa che non e' finita in nessuno dei tre modi buoni e'
      semplicemente finita nel nulla: dirlo e' piu' onesto che mostrare "In
-     trattativa" su una trattativa di tre anni fa. */
+     trattativa" su una trattativa di tre anni fa. Dal 3 ottobre 2026 aprire
+     un'opportunita' non chiude piu' quella di prima, quindi "Non conclusa"
+     resta solo sulle righe vecchie chiuse cosi'. */
   function gigStalled(g){ return !g.open && !isClosingStatus(g.status); }
   function gigStateLabel(g){ return gigStalled(g) ? "Non conclusa" : gigStatusInfo(g.status).label; }
   function gigStateColors(g){
@@ -3411,10 +3430,17 @@
     });
   }
 
-  /* ---------------- navbar scroll collapse ---------------- */
-  [["scrollHome","navHome"],["scrollList","navList"],["scrollFavorites","navFavorites"],["scrollGigs","navGigs"],["scrollRecontact","navRecontact"],["scrollBands","navBands"],["scrollSettings","navSettings"]].forEach(function(pair){
-    var scroller = document.getElementById(pair[0]);
-    var nav = document.getElementById(pair[1]);
+  /* ---------------- navbar scroll collapse ----------------
+     Il comportamento di ogni elenco (INTERFACCIA.md): il titolo grande in
+     alto, e scorrendo diventa quello piccolo al centro della barra. Vale
+     per i tab e, dal 3 ottobre 2026, per le schermate secondarie che sono
+     elenchi: hanno data-titolo-grande, e il titolo grande lo aggiunge qui
+     lo script copiandolo da quello piccolo — cosi' i due non possono dire
+     cose diverse, nemmeno quando il titolo cambia (Template, Lista). Fino a
+     quel giorno la Cassa non era collegata, e nelle schermate secondarie il
+     titolo piccolo restava invisibile per sempre. */
+  function collegaTitoloScorrevole(scroller, nav){
+    if(!scroller || !nav) return;
     var titolone = nav.querySelector(".large-title-wrap");
     scroller.addEventListener("scroll", function(){
       if(nav.classList.contains("scrolled")){
@@ -3431,6 +3457,27 @@
         nav.classList.add("scrolled");
       }
     });
+  }
+  [["scrollHome","navHome"],["scrollList","navList"],["scrollFavorites","navFavorites"],["scrollGigs","navGigs"],["scrollRecontact","navRecontact"],["scrollCash","navCash"],["scrollBands","navBands"],["scrollSettings","navSettings"]].forEach(function(pair){
+    collegaTitoloScorrevole(document.getElementById(pair[0]), document.getElementById(pair[1]));
+  });
+  document.querySelectorAll("section.screen.pushed[data-titolo-grande]").forEach(function(screen){
+    var nav = screen.querySelector("header.navbar");
+    var piccolo = nav && nav.querySelector(".inline-title");
+    var scroller = screen.querySelector(".screen-scroll");
+    if(!piccolo || !scroller) return;
+    var wrap = nav.querySelector(".large-title-wrap");
+    if(!wrap){
+      wrap = document.createElement("div");
+      wrap.className = "large-title-wrap";
+      wrap.innerHTML = '<h1 class="large-title"></h1>';
+      nav.querySelector(".navbar-row").insertAdjacentElement("afterend", wrap);
+    }
+    var grande = wrap.querySelector(".large-title");
+    var copia = function(){ grande.textContent = piccolo.textContent; };
+    copia();
+    new MutationObserver(copia).observe(piccolo, {childList: true, characterData: true, subtree: true});
+    collegaTitoloScorrevole(scroller, nav);
   });
 
   /* ---------------- tab navigation ---------------- */
@@ -3884,7 +3931,7 @@
         "i miei compiti, prossimi 30 giorni" + (mieiTardi ? " · " + mieiTardi + " in ritardo" : ""),
         false, false, "recontact:tasks:miei") +
       tileHtml(String(pianif.length), "palchi che preparano il calendario",
-        "nei prossimi 3 mesi",
+        "questo mese e i due dopo",
         false, false, "recontact:pianif") +
     '</div>';
 
@@ -5794,6 +5841,100 @@
     if(esitoDraft){ toast("Conferma o annulla"); return; }
     openDetail(row.getAttribute("data-open-id"));
   });
+  /* ---- opportunita' nuova, dal tab Opportunita' ----
+     Il + in alto apre il modulo in cima all'elenco, come il compito nuovo in
+     Agenda. I campi sono quelli dell'opportunita' nuova nella scheda del
+     palco (stato, data, compenso, note) piu' il palco, che qui va scelto ed
+     e' la prima riga: un'opportunita' senza palco non esiste. */
+  var gigsNew = null;
+  var elGigsNew = document.getElementById("gigsNewFields");
+  var elBtnAddGig = document.getElementById("btnAddGig");
+  function renderGigsNew(){
+    elGigsNew.hidden = !gigsNew;
+    elBtnAddGig.hidden = !!gigsNew || (me && me.can_write === false);
+    if(!gigsNew){ elGigsNew.innerHTML = ""; return; }
+    var st = gigStatusInfo(gigsNew.status);
+    elGigsNew.innerHTML = '<div class="section-header">OPPORTUNITÀ NUOVA</div>'+
+      '<div class="gig-panel" style="border-radius:10px;margin:0 16px;border-top:none;">'+
+      '<div class="field-row picker" id="gigsNewPalco"><label>Palco</label>'+
+        '<div class="picker-value"><span'+(gigsNew.location_id ? '' : ' style="color:var(--text-tertiary);"')+'>'+
+        (gigsNew.location_id ? dato(nomeDelPalco(gigsNew.location_id)) : "Scegli…")+
+        '</span>'+CHEVRON+'</div></div>'+
+      '<div class="field-row picker" id="gigsNewStatus"><label>Stato</label>'+
+        '<div class="picker-value"><span class="dot" style="background:'+st.color+'"></span><span>'+esc(st.label)+'</span>'+CHEVRON+'</div></div>'+
+      '<div class="field-row"><label>Data serata</label>'+
+        '<input type="date" data-gigsnew-field="gig_date" value="'+esc(gigsNew.gig_date)+'">'+
+        dateClearHtml(gigsNew.gig_date)+'</div>'+
+      '<div class="field-row"><label>Compenso €</label>'+
+        '<input type="text" inputmode="decimal" placeholder="350" data-gigsnew-field="fee" value="'+esc(gigsNew.fee)+'"></div>'+
+      '<div class="field-row stacked"><label>Note</label>'+
+        '<textarea rows="2" placeholder="es. accordi presi, a chi chiedere, cosa portare" data-gigsnew-field="outcome_note">'+esc(gigsNew.outcome_note)+'</textarea></div>'+
+      '<div class="add-note-row" style="justify-content:flex-end;gap:18px;">'+
+        '<button type="button" id="btnGigsNewCancel" style="color:var(--text-secondary);">Annulla</button>'+
+        '<button type="button" id="btnGigsNewSave">Salva</button>'+
+      '</div></div>';
+  }
+  function readGigsNew(){
+    if(!gigsNew) return;
+    ["gig_date", "fee", "outcome_note"].forEach(function(f){
+      var el = elGigsNew.querySelector('[data-gigsnew-field="'+f+'"]');
+      if(el) gigsNew[f] = el.value;
+    });
+  }
+  function apriGigsNew(){
+    if(gigsNew) return;
+    gigsNew = {location_id: null, status: "contattato", gig_date: "", fee: "", outcome_note: ""};
+    renderGigsNew();
+    document.getElementById("scrollGigs").scrollTop = 0;
+  }
+  function chiudiGigsNew(){ gigsNew = null; renderGigsNew(); }
+  elBtnAddGig.addEventListener("click", apriGigsNew);
+  elGigsNew.addEventListener("click", function(e){
+    var salva = e.target.closest("#btnGigsNewSave");
+    if(salva){ salvaGigsNew(salva); return; }
+    if(e.target.closest("#btnGigsNewCancel")){ chiudiGigsNew(); return; }
+    if(e.target.closest("#gigsNewPalco")){
+      readGigsNew();
+      var opts = venues.filter(function(v){ return !v.deleted_at; }).slice()
+        .sort(function(a, b){ return String(a.name||"").localeCompare(String(b.name||""), "it"); })
+        .map(function(v){
+          return {label: (v.name || "Senza nome") + (v.city ? " · " + v.city : ""), dato: true,
+            checkmark: String(gigsNew.location_id) === String(v.id),
+            onSelect: function(){ if(!gigsNew) return; gigsNew.location_id = v.id; renderGigsNew(); }};
+        });
+      openSheet({title: "Di quale palco", searchable: true, searchPlaceholder: "Cerca un palco…", options: opts});
+      return;
+    }
+    if(e.target.closest("#gigsNewStatus")){
+      readGigsNew();
+      openSheet({title: "Stato dell’opportunità", options: GIG_STATUSES.map(function(sv){
+        return {label: sv.label, color: sv.color, checkmark: gigsNew.status === sv.key,
+          onSelect: function(){ if(!gigsNew) return; gigsNew.status = sv.key; renderGigsNew(); }};
+      })});
+    }
+  });
+  function salvaGigsNew(btn){
+    readGigsNew();
+    if(!gigsNew) return;
+    if(!gigsNew.location_id){ toast("Scegli il palco"); return; }
+    if(mancaLaData(gigsNew)) return;
+    var body = {status: gigsNew.status};
+    if(gigsNew.gig_date) body.gig_date = gigsNew.gig_date;
+    if(gigsNew.fee !== "") body.fee = gigsNew.fee;
+    if(gigsNew.outcome_note) body.outcome_note = gigsNew.outcome_note;
+    var locId = gigsNew.location_id;
+    withButtonBusy(btn, function(){
+      return api("POST", "/api/locations/" + locId + "/gigs", body);
+    }).then(function(updated){
+      chiudiGigsNew();
+      // Se l'elenco era sulle Chiuse e quella nuova e' aperta, non si
+      // vedrebbe: si torna sulle Aperte.
+      if(!isClosingStatus(body.status) && gigsScope !== "aperte"){ gigsScope = "aperte"; gigsStatusFilter = []; }
+      applyGigResponse(updated, String(currentId) === String(locId));
+      toast("Opportunità aggiunta");
+    }).catch(function(err){ toast(err.message); });
+  }
+
   elGigsSearch.addEventListener("input", function(){
     gigsSearchText = elGigsSearch.value;
     renderAllGigs();
@@ -5821,20 +5962,14 @@
      no: sono regole (serata aperta, periodo, data) che dalle righe non si
      vedono, e senza quella riga l'unico modo di sapere perche' un
      palco non c'e' e' indovinarlo. Stessa cosa in Opportunita'. */
-  var elRecontactList = document.getElementById("recontactList");
   var elRecontactSub = document.getElementById("recontactSub");
   var elAgendaGigs = document.getElementById("agendaGigsList");
-  var elPlanList = document.getElementById("planList");
-  var elScrollRecontact = document.getElementById("scrollRecontact");
   /* L'Agenda si apre sui Compiti: e' la prima scheda, ed e' la domanda con
      cui si apre l'agenda al mattino — cosa devo fare oggi. Le altre tre
      restano a un tocco. */
   var agendaView = "tasks";
 
   function setAgendaView(v){
-    // La mattonella della Home punta ancora a Da contattare: con le due
-    // code vecchie nascoste dall'Admin si arriva su Pianificazioni.
-    if((v === "recontact" || v === "plan") && !(me && me.agenda_old_lists)) v = "pianif";
     // Uscire dai Compiti chiude quello che era aperto li' dentro: un form a
     // meta' sotto un altro elenco non lo ritrova piu' nessuno, e la bozza
     // non e' ancora niente finche' non la salvi.
@@ -5846,8 +5981,6 @@
     document.querySelectorAll("#agendaToggle .view-toggle-btn").forEach(function(b){
       b.classList.toggle("active", b.getAttribute("data-agenda") === agendaView);
     });
-    document.getElementById("agendaPaneRecontact").hidden = agendaView !== "recontact";
-    document.getElementById("agendaPanePlan").hidden = agendaView !== "plan";
     document.getElementById("agendaPanePianif").hidden = agendaView !== "pianif";
     document.getElementById("agendaPaneTasks").hidden = agendaView !== "tasks";
     document.getElementById("agendaPaneGigs").hidden = agendaView !== "gigs";
@@ -5859,102 +5992,32 @@
     if(btn) setAgendaView(btn.getAttribute("data-agenda"));
   });
 
-  /* Ogni riga si porta dietro la sua data, che adesso e' scritta sul
-     palco: non c'e' piu' niente da calcolare a partire da oggi.
-
-     Dentro ci va chiunque abbia una data, che abbia una serata aperta o no.
-     Fino al 15 settembre 2026 ne servivi una, e l'elenco diceva una cosa
-     diversa da quella che prometteva: un palco a cui avevi detto
-     "risentiamoci a ottobre" e su cui non avevi aperto niente — il caso
-     normale dopo un no — a ottobre non compariva.
-
-     L'ordine e' quello del tempo, dal piu' vecchio al piu' nuovo: gli
-     scaduti stanno in cima da soli, senza bisogno di un riquadro che li
-     raccolga, perche' in una fila cronologica il passato viene prima. A
-     parita' di giorno l'ordine e' alfabetico.
-
-     Fuori restano gli archiviati e chi la data non ce l'ha: quelli stanno
-     in "Da pianificare", e i due segmenti continuano a non sovrapporsi. */
-  function venuesToRecontact(){
-    return venues.filter(function(v){
-      return !v.deleted_at && v.next_contact_date;
-    })
-      .map(function(v){ return {v: v, due: recontactDue(v)}; })
-      .sort(function(a, b){
-        if(a.due.date !== b.due.date) return a.due.date < b.due.date ? -1 : 1;
-        return String(a.v.name || "").localeCompare(String(b.v.name || ""), "it");
-      });
+  /* ---------------- PROGRAMMAZIONI ---------------- */
+  /* Programmazioni (3 ottobre 2026: prima Pianificazioni, sulla data di
+     contatto letta senza anno). Si basa sui mesi di programmazione del
+     palco: la finestra e' questo mese e i due dopo, e un palco con piu'
+     mesi nella finestra compare sotto ognuno (scelta di Stefano) — "Tutto
+     l'anno" quindi compare tre volte. */
+  function mesiFinestra(){
+    var m = Number(todayStr().slice(5, 7));
+    return [0, 1, 2].map(function(k){ return (m - 1 + k) % 12 + 1; });
   }
-  /* Le righe raggruppate per mese, in ordine: "ottobre 2026" e'
-     un'intestazione che si legge da sola, e senza l'anno due ottobre
-     diversi finirebbero sotto lo stesso titolo. */
-  function recontactPerMese(){
-    var gruppi = [], ultimo = null;
-    venuesToRecontact().forEach(function(x){
-      var chiave = x.due.date.slice(0, 7);
-      if(!ultimo || ultimo.chiave !== chiave){
-        ultimo = {chiave: chiave, titolo: MESI[Number(chiave.slice(5, 7)) - 1] + " " + chiave.slice(0, 4), righe: []};
-        gruppi.push(ultimo);
-      }
-      ultimo.righe.push(x);
-    });
-    return gruppi;
-  }
-
-  /* ---------------- PIANIFICAZIONI (30 settembre 2026) ----------------
-     La stessa fila di "Da contattare", con un'altra domanda: chi sta per
-     fare il calendario. La data di contatto qui vale per il giorno e il
-     mese e basta — un palco che il 15 novembre 2023 ti aveva detto "a
-     novembre facciamo la stagione" lo fa anche quest'anno, e quel 2023
-     scaduto da tre anni non deve tenerlo fuori. Quindi si proietta: la
-     prossima volta che quel giorno torna, da oggi compreso, e dentro se
-     cade nei prossimi tre mesi. Il 29 febbraio in un anno che non ce l'ha
-     diventa il 28. */
-  function prossimaRicorrenza(data, oggi){
-    function inAnno(y){
-      var md = data.slice(5, 10);
-      if(md === "02-29" && !(y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0))) md = "02-28";
-      return y + "-" + md;
-    }
-    var y = Number(oggi.slice(0, 4)), d = inAnno(y);
-    return d >= oggi ? d : inAnno(y + 1);
-  }
-  // Oggi piu' tre mesi, con il giorno fermato alla fine del mese: il 30
-  // novembre porta al 28 febbraio, non al 2 marzo.
-  function fraTreMesi(oggi){
-    var y = Number(oggi.slice(0, 4)), m = Number(oggi.slice(5, 7)) + 3, g = Number(oggi.slice(8, 10));
-    if(m > 12){ m -= 12; y += 1; }
-    var ultimo = new Date(y, m, 0).getDate();
-    return y + "-" + (m < 10 ? "0" : "") + m + "-" + String(Math.min(g, ultimo)).padStart(2, "0");
-  }
-  function venuesToPianif(){
-    var oggi = todayStr(), limite = fraTreMesi(oggi);
-    return venues.filter(function(v){ return !v.deleted_at && v.next_contact_date; })
-      .map(function(v){
-        var d = prossimaRicorrenza(v.next_contact_date, oggi);
-        return {v: v, due: {date: d, late: false}};
-      })
-      .filter(function(x){ return x.due.date <= limite; })
-      .sort(function(a, b){
-        if(a.due.date !== b.due.date) return a.due.date < b.due.date ? -1 : 1;
-        return String(a.v.name || "").localeCompare(String(b.v.name || ""), "it");
-      });
-  }
-  /* Le intestazioni dicono il mese e basta: in tre mesi un mese non torna
-     due volte, e un anno accanto farebbe pensare a quello scritto nella
-     scheda, che qui non conta. */
   function pianifPerMese(){
-    var gruppi = [], ultimo = null;
-    venuesToPianif().forEach(function(x){
-      var chiave = x.due.date.slice(0, 7);
-      if(!ultimo || ultimo.chiave !== chiave){
-        var nome = MESI[Number(chiave.slice(5, 7)) - 1];
-        ultimo = {chiave: chiave, titolo: nome.charAt(0).toUpperCase() + nome.slice(1), righe: []};
-        gruppi.push(ultimo);
-      }
-      ultimo.righe.push(x);
+    var vivi = venues.filter(function(v){ return !v.deleted_at && v.programming_months; });
+    return mesiFinestra().map(function(mese){
+      var nome = MESI[mese - 1];
+      var righe = vivi.filter(function(v){ return mesiProgrammazione(v.programming_months).indexOf(mese) > -1; })
+        .sort(function(a, b){ return String(a.name || "").localeCompare(String(b.name || ""), "it"); });
+      return {chiave: mese, titolo: nome.charAt(0).toUpperCase() + nome.slice(1), righe: righe};
+    }).filter(function(g){ return g.righe.length; });
+  }
+  /* I palchi, una volta sola: e' il numero della Home e del sottotitolo. */
+  function venuesToPianif(){
+    var visti = {}, fuori = [];
+    pianifPerMese().forEach(function(g){
+      g.righe.forEach(function(v){ if(!visti[v.id]){ visti[v.id] = true; fuori.push(v); } });
     });
-    return gruppi;
+    return fuori;
   }
 
   /* ---------------- i COMPITI in Agenda ----------------
@@ -6514,275 +6577,13 @@
     return out;
   }
 
-  /* Tutti quelli su cui hai messo le mani e di cui non hai mai detto
-     quando richiamarli. Senza periodo un palco non compare in "Da
-     contattare", che va a calendario, e quindi non torna a galla mai piu':
-     una trattativa aperta due mesi fa e poi lasciata li' non la ritrova
-     nessuno. E' l'arretrato, ed e' la parte piu' grossa della rubrica.
-
-     I due segmenti sono complementari e non si sovrappongono: qui chi non ha
-     un periodo, li' chi ce l'ha. Scegliere il periodo e' l'unico gesto che
-     serve, e sposta la riga da una parte all'altra.
-
-     Dentro ci va chiunque non sia un Lead. Un Lead e' un indirizzo copiato
-     da un elenco, su cui non hai ancora fatto niente: sono cinquecento, e a
-     tenerli qui l'arretrato vero — i Prospect, quelli che hai gia' toccato
-     — ci annegherebbe. Il passo che conta e' uscire da Lead, e lo fai tu
-     dalla scheda.
-
-     Fino al 15 settembre 2026 qui ci voleva una serata aperta, e l'elenco
-     conteneva una riga in tutto: chiudere una trattativa faceva sparire il
-     palco da tutte e due i segmenti dell'Agenda, e un Prospect
-     sentito a marzo e poi lasciato li' non lo ritrovava piu' nessuno.
-     Adesso sono 61. */
   function statusRank(k){
     var i = VENUE_STATUSES.findIndex(function(x){ return x.key === k; });
     return i < 0 ? 99 : i;
   }
-  /* Si entra da "Focus" e non da "Tutti": l'arretrato intero e' lungo, e
-     quello su cui la band ha deciso di stare e' la parte per cui apri
-     questa schermata. Gli altri due restano a un tocco, e la scelta dura
-     finche' l'app e' aperta.
-
-     Le tre pastiglie non dicono la stessa cosa in tre modi: Focus e' la
-     band — l'ha acceso qualcuno per tutti — Preferiti sei tu soltanto, e
-     nessuno degli altri li vede. Uno dei due e' una decisione presa
-     insieme, l'altro un appunto tuo, e in mezzo alla stessa barra bisogna
-     ricordarselo. */
-  var planFiltro = "focus";
-  function venuesToPlan(filtro){
-    var f = filtro || planFiltro;
-    return venues.filter(function(v){
-      if(v.deleted_at || v.status === "lead" || v.next_contact_date) return false;
-      if(f === "focus") return !!v.focus;
-      if(f === "preferiti") return sonoPreferito(v.id);
-      return true;
-    }).slice().sort(function(a, b){
-      var ra = statusRank(a.status), rb = statusRank(b.status);
-      if(ra !== rb) return ra - rb;
-      return String(a.name || "").localeCompare(String(b.name || ""), "it");
-    });
-  }
-  function planRowHtml(v){
-    var sub = [];
-    if(v.planning_note) sub.push(dato(v.planning_note));
-    if(v.type) sub.push('<span class="type-tag">'+dato(v.type)+'</span>');
-    return '<div class="swipe-row" data-id="'+v.id+'">'+
-      '<div class="row-content"><div class="row" data-open-id="'+v.id+'">'+
-        '<div class="row-main"><div class="row-title">'+
-          (v.focus ? OCCHIO : '')+dato(v.name||"Senza nome")+'</div>'+
-        (sub.length ? '<div class="row-sub">'+sub.join(" · ")+'</div>' : '')+
-        (v.city ? '<div class="row-sub">'+dato(v.city)+'</div>' : '')+'</div>'+
-        '<div class="row-trail">'+venueStatusPill(v)+
-          '<label class="plan-date">Ricontatta'+
-            '<input type="date" class="plan-date-input" data-period="'+v.id+'" aria-label="Quando richiamarli">'+
-          '</label>'+CHEVRON+'</div>'+
-      '</div></div>'+
-    '</div>';
-  }
-  /* Raggruppati per stato invece che in un elenco solo lungo duecento
-     righe: cosi' si vede subito che l'arretrato vero sono i contattati, e
-     dentro ogni gruppo l'ordine e' alfabetico.
-
-     La pastiglia c'e' lo stesso, anche se l'intestazione del gruppo dice la
-     stessa cosa: e' nella stessa colonna di tutti gli altri elenchi, e una
-     riga che finisce sotto l'intestazione sbagliata mentre scorri non
-     dovrebbe costare una risalita per capire cos'e'. */
-  /* Le pastiglie e il loro numero: il numero e' meta' del senso, perche'
-     l'elenco filtrato da solo non puo' dire quanto resta fuori.
-
-     "Preferiti" c'e' ma non si vede: il filtro funziona — venuesToPlan lo
-     sa fare, lo stato vuoto sa cosa dire — solo la pastiglia non viene
-     disegnata. Per rimetterlo basta togliergli "nascosto" qui sotto, senza
-     riscrivere niente.
-
-     Stanno solo qui, in "Da pianificare". Per un giro le ha avute anche "Da
-     contattare", e sono durate poco: li' l'elenco e' cosa c'e' da fare
-     oggi, e una telefonata in ritardo dietro a un filtro e' una telefonata
-     che non fai. */
-  var elPlanFilterBar = document.getElementById("planFilterBar");
-  function renderPlanFilterBar(){
-    elPlanFilterBar.innerHTML = [
-      {key: "focus", label: "Focus"},
-      {key: "preferiti", label: "Preferiti", nascosto: true},
-      {key: "tutti", label: "Tutti"}
-    ].filter(function(f){ return !f.nascosto; }).map(function(f){
-      var n = venuesToPlan(f.key).length, attivo = f.key === planFiltro;
-      return '<button type="button" class="filtro-chip'+(attivo ? " active" : "")+
-        (n ? "" : " vuoto")+'" data-filtro="'+f.key+'"'+
-        (attivo ? ' aria-current="true"' : '')+'>'+esc(f.label)+
-        (n ? '<span class="cnt">'+n+'</span>' : '')+'</button>';
-    }).join("");
-  }
-  elPlanFilterBar.addEventListener("click", function(e){
-    var btn = e.target.closest("[data-filtro]");
-    if(!btn || btn.getAttribute("data-filtro") === planFiltro) return;
-    planFiltro = btn.getAttribute("data-filtro");
-    renderRecontact();
-    document.getElementById("scrollRecontact").scrollTop = 0;
-  });
-
-  function renderPlanList(){
-    // Rifare l'elenco adesso vorrebbe dire togliere da sotto al calendario la
-    // riga a cui e' attaccato, e chiuderlo. Si aspetta che il campo perda il
-    // fuoco: ci pensa il focusout qui sotto.
-    if(pickerAperto) return;
-    renderPlanFilterBar();
-    var righe = venuesToPlan();
-    if(!righe.length){
-      elPlanList.innerHTML = '<div class="empty-state"><div class="glyph">🗒️</div>'+
-        (planFiltro !== "tutti" && venuesToPlan("tutti").length
-          ? (planFiltro === "focus"
-              ? '<h2>Nessuno in focus</h2>'+
-                '<p>Qui restano solo i palchi che la band ha messo sott’occhio, con l’occhio in alto nella scheda. Il numero sulla pastiglia «Tutti» dice quanti ne aspettano fuori.</p>'
-              : '<h2>Nessun preferito qui</h2>'+
-                '<p>Qui restano solo i tuoi preferiti — la stella è tua e non la vede nessun altro. Il numero sulla pastiglia «Tutti» dice quanti ne aspettano fuori.</p>')
-          : '<h2>Niente da pianificare</h2>'+
-            '<p>Ogni palco che hai già toccato ha un giorno in cui richiamarlo. Senza, non comparirebbe in Da contattare — che va a calendario — e non tornerebbe a galla da solo.</p>')+
-        '</div>';
-      return;
-    }
-    var html = "", corrente = null;
-    righe.forEach(function(v){
-      if(v.status !== corrente){
-        if(corrente !== null) html += '</div>';
-        var quanti = righe.filter(function(x){ return x.status === v.status; }).length;
-        html += '<div class="agenda-group">'+esc(venueStatusInfo(v.status).label)+
-          '<span class="group-count">'+quanti+'</span></div><div class="grouped-list">';
-        corrente = v.status;
-      }
-      html += planRowHtml(v);
-    });
-    elPlanList.innerHTML = html + '</div>';
-  }
-  /* Un gesto solo, e la riga passa nell'altro segmento. Il campo data e' lo
-     stesso della scheda, e sta nella riga: un foglio che si apre per una
-     scelta sola sarebbe un tocco in piu' per niente. */
-  /* Col dito non si salva mentre si gira la rotella: si salva quando la si
-     chiude. Su iPhone il campo prende il valore di oggi appena il calendario
-     si apre e "change" scatta subito; salvando li' per li' la riga usciva da
-     "Da pianificare" — una data adesso ce l'ha — e il calendario si chiudeva
-     da solo perche' gli avevamo tolto da sotto l'elemento a cui era
-     attaccato. Sembrava che l'app scegliesse la data al posto tuo.
-
-     Col mouse invece "change" arriva a scelta fatta, una volta: si toglie il
-     fuoco e il salvataggio parte subito, come prima. */
-  /* Il calendario della pastiglia "Ricontatta", come si comporta sui telefoni
-     veri — e su iOS non come su Android.
-
-     Si salva quando la data viene scelta ("change"), e "Fine" chiude e
-     basta: su iPad "Fine" non toglie nemmeno il fuoco al campo, quindi
-     aspettarlo voleva dire non salvare finche' non toccavi un'altra riga.
-
-     **Un campo vuoto non cancella niente.** C'e' stato un giro in cui
-     "Ripristina" (iOS) e "Annulla" (Android) disfacevano la data appena
-     scritta: sembrava giusto, e su iOS ha cancellato date che erano state
-     scelte e salvate — nel database restavano righe toccate un istante
-     prima e con la data a NULL. Da fuori i due casi non si distinguono, e
-     fra il rischio di tenere una data che volevi buttare e quello di
-     buttarne una che volevi tenere, il secondo e' peggio: la prima si
-     cambia riscegliendola, la seconda sparisce senza che nessuno lo dica.
-     Per disfare c'e' la scheda del palco, dove la ✕ toglie il promemoria.
-
-     L'elenco non si rifa finche' il calendario e' aperto: la riga uscirebbe
-     da "Da pianificare" con il calendario ancora attaccato a lei, e si
-     chiuderebbe da solo — era il guaio di partenza. Si rifa quando il campo
-     perde il fuoco o quando tocchi qualcos'altro, e il messaggio in basso
-     nel frattempo dice che la data e' stata scritta. */
-  var pickerAperto = false;
-  var dataScritta = false;
-  var rifattoAlle = 0;
-  var apertoAlle = 0;
-
-  function apreIlCalendario(){
-    pickerAperto = true;
-    apertoAlle = Date.now();
-  }
-  function chiudeIlCalendario(){
-    pickerAperto = false;
-    if(!dataScritta) return;
-    dataScritta = false;
-    // L'elenco si accorcia di una riga: senza rimettere lo scorrimento dove
-    // era, quello che stavi guardando si sposta sotto il dito. Cosi' invece
-    // al posto della riga che se ne va trovi la successiva.
-    var scroll = elScrollRecontact ? elScrollRecontact.scrollTop : 0;
-    renderRecontact();
-    if(elScrollRecontact) elScrollRecontact.scrollTop = scroll;
-    rifattoAlle = Date.now();
-  }
-
-  // Il fuoco su iOS non arriva sempre, il tocco sulla pastiglia si': si
-  // segna da tutti e due i posti, chi arriva primo vince.
-  elPlanList.addEventListener("focusin", function(e){
-    if(e.target.closest("[data-period]")) apreIlCalendario();
-  });
-
-  elPlanList.addEventListener("change", function(e){
-    var campo = e.target.closest("[data-period]");
-    if(!campo) return;
-    // Vuoto: vedi sopra, non si cancella niente.
-    if(!campo.value) return;
-    // Il calendario che si presenta scrive la data di oggi da solo, prima che
-    // tu abbia toccato qualcosa: arriva nell'istante dell'apertura, mentre
-    // una data scelta arriva dopo che l'hai guardato.
-    if(campo.value === todayStr() && Date.now() - apertoAlle < 500) return;
-
-    dataScritta = true;
-    saveNextContact(campo.getAttribute("data-period"), campo.value).then(function(){
-      // Il server ha detto di si': la riga adesso una data ce l'ha, quindi
-      // esce da "Da pianificare" e l'elenco si rifa. Il calendario era
-      // attaccato a quella riga e si chiude con lei — che dopo una data
-      // scelta e' proprio quello che deve succedere. Era il contrario a
-      // essere il guaio di partenza: si chiudeva PRIMA che tu scegliessi,
-      // perche' si salvava la data che il calendario si mette da solo
-      // aprendosi. Su iOS non c'e' nessun evento per "Fine", quindi questo
-      // e' anche l'unico momento in cui si puo' sapere che hai finito.
-      campo.blur();
-      chiudeIlCalendario();
-    });
-  });
-
-  elPlanList.addEventListener("focusout", function(e){
-    if(e.target.closest("[data-period]")) chiudeIlCalendario();
-  });
-
-  // Su iOS il fuoco puo' non arrivare e non andarsene: il tocco da
-  // qualunque altra parte vale come "ho finito con quel calendario".
-  document.addEventListener("click", function(e){
-    if(!pickerAperto) return;
-    if(e.target.closest && e.target.closest(".plan-date")) return;
-    chiudeIlCalendario();
-  }, true);
-
-  elPlanList.addEventListener("click", function(e){
-    // Il pulsante sta dentro la riga: senza questa riga il calendario si
-    // aprirebbe insieme alla scheda del palco.
-    var pastiglia = e.target.closest(".plan-date");
-    if(pastiglia){
-      apreIlCalendario();
-      // Da computer un campo data trasparente non apre niente: il calendario
-      // lo apre solo il clic sull'iconcina, che qui e' invisibile per scelta.
-      // showPicker e' il modo di chiederlo. Col dito non si chiama: la
-      // rotella la apre gia' il tocco, e chiamarlo di nuovo la farebbe
-      // sfarfallare.
-      if(!conIlDito()){
-        var campo = pastiglia.querySelector(".plan-date-input");
-        if(campo && campo.showPicker){ try { campo.showPicker(); } catch(err){} }
-      }
-      return;
-    }
-    // L'elenco si e' appena accorciato sotto il dito: il tocco che era per la
-    // riga di prima aprirebbe quella che ha preso il suo posto, che e' un
-    // altro palco. Mezzo secondo di sordita' e si riapre come si deve.
-    if(Date.now() - rifattoAlle < 500) return;
-    var row = e.target.closest("[data-open-id]");
-    if(row) openDetail(row.getAttribute("data-open-id"));
-  });
 
   function renderRecontact(){
-    renderRecontactList();
     renderPianifList();
-    renderPlanList();
     renderAgendaTasks();
     renderAgendaNewTask();
     renderAgendaGigs();
@@ -6794,27 +6595,10 @@
       elRecontactSub.textContent = c + (c===1 ? " compito da fare" : " compiti da fare");
     } else if(agendaView === "pianif"){
       var q = venuesToPianif().length;
-      elRecontactSub.textContent = q + (q===1 ? " palco nei prossimi 3 mesi" : " palchi nei prossimi 3 mesi");
-    } else if(agendaView === "plan"){
-      var p = venuesToPlan().length;
-      elRecontactSub.textContent = p + (p===1 ? " palco senza data" : " palchi senza data");
-    } else {
-      /* Gli scaduti si dicono a parte: sono lo stesso elenco, ma sono
-         l'unica parte che riguarda oggi. */
-      var righe = venuesToRecontact();
-      var tardi = righe.filter(function(x){ return x.due.late; }).length;
-      elRecontactSub.textContent = righe.length +
-        (righe.length === 1 ? " palco da richiamare" : " palchi da richiamare") +
-        (tardi ? " · " + tardi + (tardi === 1 ? " in ritardo" : " in ritardo") : "");
+      elRecontactSub.textContent = q + (q===1 ? " palco programma in questi 3 mesi" : " palchi programmano in questi 3 mesi");
     }
   }
 
-  /* Le stesse due azioni dell'elenco palchi, con gli stessi colori:
-     archiviare e' reversibile e sta in grigio, eliminare no e sta in rosso.
-     Qui servono perche' l'agenda e' il posto dove ci si accorge che un
-     promemoria non ha piu' senso — e fin qui l'unico modo di toglierlo era
-     aprire la scheda. Un palco archiviato esce da solo dall'elenco:
-     venuesToRecontact() salta chi ha deleted_at. */
   /* La pastiglia dello stato, la stessa dell'elenco palchi, e nello
      stesso posto: in coda alla riga, a destra. Lo stato si legge sempre
      nella stessa colonna, in qualunque elenco tu sia.
@@ -6842,116 +6626,39 @@
     return '<span class="row-badge contorno" style="color:'+st.color+';">'+esc(st.label)+'</span>';
   }
 
-  /* Il conto dei giorni torna, e con lui il rosso degli scaduti. Erano
-     usciti il 15 settembre 2026, quando l'elenco si sceglieva a trimestre:
-     li' erano rumore — aprendo maggio a settembre erano rossi tutti, e un
-     allarme sempre acceso non e' un allarme. In una fila cronologica invece
-     il rosso e' in cima e riguarda solo le telefonate che dovevi fare
-     davvero: sotto, il resto dell'anno e' nero.
-
-     Niente pulsanti sulla riga: si tocca e si apre la scheda, che e' dove
-     si chiama, si scrive com'e' andata e si apre la serata. "Riproponi" e'
-     uscito dall'app il 15 settembre 2026 — apriva una serata a tua insaputa
-     da tre posti diversi, e la stessa cosa la fa il pulsante della scheda,
-     dove almeno vedi cosa stai aprendo.
-
-     E nemmeno lo scorrimento, in tutte e due le sezioni dell'Agenda (17
-     settembre 2026): Archivia ed Elimina stavano a un gesto di distanza da
-     quello con cui si scorre una coda di lavoro lunga, e qui si scorre
-     tutto il tempo. Restano nell'elenco dei palchi e nella scheda.
-     Senza row-actions lo scorrimento non ha dove agganciarsi e la riga
-     resta ferma — la stessa regola dei preferiti. */
-  function recontactRowHtml(x){
-    var v = x.v, g = daysUntil(x.due.date);
-    var tag = x.due.late ? "scaduto" : (g === 0 ? "oggi" : (g === 1 ? "domani" : "tra " + g + "g"));
-    var colore = x.due.late ? "var(--red)" : (g <= 7 ? "var(--amber)" : "var(--text-secondary)");
+  /* La riga dice i mesi del palco, tutti: sotto Ottobre, "mar, ott" ricorda
+     che c'e' anche un'altra occasione nell'anno. */
+  var elPianifList = document.getElementById("pianifList");
+  function programmazioneRowHtml(v){
     return '<div class="swipe-row" data-id="'+v.id+'">'+
       '<div class="row-content"><div class="row" data-open-id="'+v.id+'">'+
         '<div class="row-main"><div class="row-title">'+dato(v.name||"Senza nome")+'</div>'+
-        '<div class="row-sub">'+esc(fmtDateShort(x.due.date))+' · '+whenHtml(tag, colore)+
+        '<div class="row-sub">'+esc(mesiProgrammazioneTesto(v.programming_months))+
           (v.planning_note ? ' · '+dato(v.planning_note) : '')+'</div>'+
         (v.city ? '<div class="row-sub">'+dato(v.city)+'</div>' : '')+'</div>'+
         '<div class="row-trail">'+venueStatusPill(v)+CHEVRON+'</div>'+
       '</div></div>'+
     '</div>';
   }
-  /* Tutto l'anno in una fila sola, rotto per mese. Fino al 19 settembre 2026
-     si sceglieva un trimestre da quattro pastiglie: era il modo di guardare
-     un periodo alla volta quando il promemoria era un periodo e basta, e con
-     una data intera diventava un filtro che nascondeva meta' del lavoro —
-     un promemoria di gennaio non si vedeva finche' non era gennaio.
-
-     Le intestazioni portano l'anno: senza, l'ottobre dell'anno prossimo e
-     quello di quest'anno finirebbero sotto lo stesso titolo. */
-  function renderRecontactList(){
-    var gruppi = recontactPerMese();
-    if(!gruppi.length){
-      elRecontactList.innerHTML = '<div class="empty-state"><div class="glyph">🗓️</div>'+
-        '<h2>Niente da contattare</h2>'+
-        '<p>Apri un palco e scegli il giorno in cui richiamarlo: da lì in poi ti aspetta qui, al suo posto nel calendario.</p>'+
-        '</div>';
-      return;
-    }
-    elRecontactList.innerHTML = gruppi.map(function(g){
-      return '<div class="agenda-group">'+esc(g.titolo)+
-        '<span class="group-count">'+g.righe.length+'</span></div>'+
-        '<div class="grouped-list">'+g.righe.map(recontactRowHtml).join("")+'</div>';
-    }).join("");
-  }
-  elRecontactList.addEventListener("click", function(e){
-    var row = e.target.closest("[data-open-id]");
-    if(row) openDetail(row.getAttribute("data-open-id"));
-  });
-
-  /* Le righe sono quelle di "Da contattare", con la data proiettata al
-     posto di quella scritta: "15 nov 2023" sotto Novembre sembrerebbe un
-     errore, "15 nov 2026 · tra 46g" dice quando succede davvero. */
-  var elPianifList = document.getElementById("pianifList");
   function renderPianifList(){
     var gruppi = pianifPerMese();
     if(!gruppi.length){
       elPianifList.innerHTML = '<div class="empty-state"><div class="glyph">🗓️</div>'+
         '<h2>Nessuno in vista</h2>'+
-        '<p>Nessun palco ha una data di contatto che cade nei prossimi tre mesi. L’anno della data non conta: vale il giorno e il mese.</p>'+
+        '<p>Nessun palco programma le serate in questo mese o nei due dopo. I mesi si scelgono nella scheda del palco, in Programmazione.</p>'+
         '</div>';
       return;
     }
     elPianifList.innerHTML = gruppi.map(function(g){
       return '<div class="agenda-group">'+esc(g.titolo)+
         '<span class="group-count">'+g.righe.length+'</span></div>'+
-        '<div class="grouped-list">'+g.righe.map(recontactRowHtml).join("")+'</div>';
+        '<div class="grouped-list">'+g.righe.map(programmazioneRowHtml).join("")+'</div>';
     }).join("");
   }
   elPianifList.addEventListener("click", function(e){
     var row = e.target.closest("[data-open-id]");
     if(row) openDetail(row.getAttribute("data-open-id"));
   });
-
-  /* L'interruttore dell'Admin, che arriva con /api/me. Se sei proprio su una
-     delle due schede che spariscono, torni sui Compiti: restare su un
-     elenco senza il suo bottone vorrebbe dire non sapere dove sei. */
-  function applyAgendaOldLists(visibili){
-    visibili = !!visibili;
-    document.querySelectorAll('#agendaToggle [data-agenda="recontact"], #agendaToggle [data-agenda="plan"]').forEach(function(b){
-      b.hidden = !visibili;
-    });
-    document.getElementById("agendaToggle").classList.toggle("cinque", visibili);
-    if(!visibili && (agendaView === "recontact" || agendaView === "plan")) setAgendaView("tasks");
-  }
-
-  /* La data scelta nel pannello "Ho suonato", finche' non premi il
-     pulsante. Si parte da quella che il palco ha gia'; se non ha
-     niente, dalla serata appena suonata. Solo la prima volta: da li' in poi
-     comanda la tua scelta, che deve sopravvivere ai ridisegni dell'elenco. */
-  var confData = {};
-  function proposedDate(v, g){
-    if(v.next_contact_date) return v.next_contact_date;
-    /* Se hai suonato il 12 agosto, si riprova il 12 agosto dell'anno dopo:
-       e' una proposta che vedi e puoi cambiare, non un ricalcolo silenzioso
-       come quello che nel 2026 aveva spinto un promemoria fino al 2029. */
-    if(g && g.gig_date) return (Number(g.gig_date.slice(0, 4)) + 1) + g.gig_date.slice(4);
-    return "";
-  }
 
   /* La coda dice lo stato, come in ogni altro elenco. Quanto manca sta
      accanto alla data, che e' la cosa a cui si riferisce. Fra le gia'
@@ -7005,9 +6712,6 @@
     // Una data passata non vuol dire che hai suonato: le serate si annullano.
     // Meglio chiederlo che cambiare lo stato al posto tuo.
     var toConfirm = past.filter(function(x){ return x.g.status === "confermato"; });
-    toConfirm.forEach(function(x){
-      if(confData[x.g.id] === undefined) confData[x.g.id] = proposedDate(x.v, x.g);
-    });
     var html = "";
     if(toConfirm.length){
       // Una cella per serata invece di un elenco unico: ognuna e' alta tre
@@ -7024,9 +6728,6 @@
           '<div class="gig-panel">'+
             '<div class="field-row stacked"><label>Com\'è andata</label>'+
               '<textarea rows="2" id="conf-note-'+x.g.id+'" placeholder="es. serata piena, ci richiamano">'+esc(x.g.outcome_note || "")+'</textarea></div>'+
-            '<div class="field-row"><label>Quando contattarli</label>'+
-              '<input type="date" data-conf-period="'+x.g.id+'" value="'+esc(confData[x.g.id] || "")+'">'+
-              dateClearHtml(confData[x.g.id])+'</div>'+
           '</div>'+
           '<div class="gig-confirm">'+
             '<button type="button" class="yes" data-played="'+x.g.id+'">Ho suonato</button>'+
@@ -7094,17 +6795,6 @@
     }
     elAgendaGigs.innerHTML = html;
   }
-  /* La data scelta qui non si salva finche' non premi il pulsante: si
-     ricorda in confData, che sopravvive ai ridisegni dell'elenco. La ✕
-     manda "input" e non "change", quindi valgono tutti e due. */
-  elAgendaGigs.addEventListener("change", function(e){
-    var per = e.target.closest("[data-conf-period]");
-    if(per) confData[per.getAttribute("data-conf-period")] = per.value;
-  });
-  elAgendaGigs.addEventListener("input", function(e){
-    var per = e.target.closest("[data-conf-period]");
-    if(per && !per.value) confData[per.getAttribute("data-conf-period")] = "";
-  });
   elAgendaGigs.addEventListener("click", function(e){
     var yes = e.target.closest("[data-played]");
     var no = yes ? null : e.target.closest("[data-cancelled]");
@@ -7117,14 +6807,11 @@
       // si archivia dalla sua riga.
       var payload = {status: yes ? "suonato" : "annullato"};
       if(noteEl) payload.outcome_note = noteEl.value;
-      // Anche se e' vuoto: nessuna data vuol dire non richiamarli.
-      payload.next_contact_date = confData[gigId] || "";
       api("PUT", "/api/gigs/" + gigId, payload).then(function(updated){
         applyUpdatedVenue(updated);
         renderAll();
         renderRecontactRows(updated);
-        toast((yes ? "Segnata come suonata" : "Segnata come annullata") +
-          (updated.next_contact_date ? " · li richiami " + nextContactPhrase(updated.next_contact_date) : ""));
+        toast(yes ? "Segnata come suonata" : "Segnata come annullata");
       }).catch(function(err){ toast(err.message); });
       return;
     }
@@ -7878,43 +7565,49 @@
     setDato(elSaveIndicatorTitle, fName.value, "Nuovo palco");
   });
 
-  /* Il periodo si sceglie da un foglio, non si digita: i mesi sono dodici e
-     il giorno quasi sempre non serve. La riga del giorno esiste solo se un
-     mese c'e' — "il 15 di niente" non vuol dire niente — e il salvataggio e'
-     immediato, non a 350ms come i campi di testo: qui non stai digitando,
-     hai scelto. */
-  var elNextContact = document.getElementById("fNextContact");
+  /* I mesi di programmazione si scelgono da un foglio: dodici mesi e, in
+     cima, "Tutto l'anno", che li accende (o spegne) tutti. Sono una scelta
+     in bozza come le altre righe: li scrive Salva.
 
+     Il nome renderRecontactRows e' rimasto quello della data di contatto
+     che stava qui prima (fino al 3 ottobre 2026): la chiamano gli stessi
+     posti, dopo ogni salvataggio che riscrive il palco. */
+  var elProgMesiValue = document.getElementById("progMesiValue");
   function renderRecontactRows(v){
     if(!v || String(v.id) !== String(currentId)) return;
     v = conBozza(v);
-    elNextContact.value = v.next_contact_date || "";
-    var x = elNextContact.parentNode.querySelector("[data-clear-date]");
-    if(x) x.hidden = !elNextContact.value;
+    var testo = mesiProgrammazioneTesto(v.programming_months);
+    elProgMesiValue.textContent = testo || "Nessuno";
+    elProgMesiValue.style.color = testo ? "" : "var(--text-tertiary)";
   }
-  /* Il periodo si sceglie da due posti: la scheda del palco e la riga
-     di "Da pianificare". Dall'Agenda si salva subito (qui sotto);
-     nella scheda invece resta in bozza con le altre righe e la scrive Salva. */
-  function saveNextContact(id, d){
-    return api("PUT", "/api/locations/" + id, {next_contact_date: d}).then(function(updated){
-      applyUpdatedVenue(updated);
-      renderRecontactRows(updated);
-      renderAll();
-      toast(d ? "Li contatti " + nextContactPhrase(d) : "Promemoria tolto");
-    }).catch(function(err){ toast(err.message); });
-  }
-  /* Si salva quando la data e' scelta, non mentre la si scrive: "change"
-     arriva a scelta fatta. La ✕ invece svuota il campo da fuori — non ci sei
-     dentro col dito — e quello e' l'unico "input" che qui vale un
-     salvataggio: senza, togliere il promemoria non lo toglierebbe davvero. */
-  // Nella scheda la data e' una scelta in bozza come le altre righe: la
-  // scrive Salva. Da "Da pianificare" invece si salva subito (saveNextContact).
-  elNextContact.addEventListener("change", function(){
-    if(currentId) scegliInBozza("next_contact_date", elNextContact.value, renderRecontactRows);
-  });
-  elNextContact.addEventListener("input", function(){
-    if(currentId && !elNextContact.value && document.activeElement !== elNextContact)
-      scegliInBozza("next_contact_date", "", renderRecontactRows);
+  document.getElementById("rowProgrammazione").addEventListener("click", function(){
+    var v = conBozza(currentVenue()); if(!v) return;
+    var scelti = {};
+    mesiProgrammazione(v.programming_months).forEach(function(m){ scelti[m] = true; });
+    var tutti = function(){ return MESI.every(function(_, i){ return scelti[i + 1]; }); };
+    var voci = [];
+    var tuttoAnno = {label: "Tutto l’anno", checkmark: tutti(), onToggle: function(on){
+      MESI.forEach(function(_, i){ if(on) scelti[i + 1] = true; else delete scelti[i + 1]; });
+      voci.forEach(function(o, i){ if(i > 0) o.checkmark = on; });
+    }};
+    voci.push(tuttoAnno);
+    MESI.forEach(function(nome, i){
+      voci.push({label: nome.charAt(0).toUpperCase() + nome.slice(1), checkmark: !!scelti[i + 1],
+        onToggle: function(on){
+          if(on) scelti[i + 1] = true; else delete scelti[i + 1];
+          tuttoAnno.checkmark = tutti();
+        }});
+    });
+    openSheet({
+      title: "Mesi di programmazione",
+      multiSelect: true,
+      options: voci,
+      onDone: function(){
+        var valore = Object.keys(scelti).map(Number).sort(function(a, b){ return a - b; })
+          .map(pad2).join(",");
+        scegliInBozza("programming_months", valore || null, renderRecontactRows);
+      }
+    });
   });
 
   function renderPhotosStrip(v){
@@ -8979,9 +8672,7 @@
      Elimina — e la somiglianza e' voluta: due elenchi identici nella stessa
      scheda non si imparano due volte.
 
-     Dove invece non si somigliano: di compiti ce ne stanno quanti ne vuoi
-     tutti insieme (una serata aperta e' una sola, e aprirne un'altra chiude
-     quella di prima), e un compito non tocca lo stato del palco.
+     Dove invece non si somigliano: un compito non tocca lo stato del palco.
      Mandare un preventivo non cambia il rapporto con il locale: quello lo
      dice l'opportunita'.
 
@@ -9216,15 +8907,39 @@
     var t = chiusuraTipo(d.kind);
     return t.vuoto || ("Fatto: «" + d.descr + "»");
   }
-  // L'opportunita' aperta del palco, se c'e': ce n'e' al massimo una.
-  function chiusuraGigAperta(v){
-    return venueGigs(v).filter(function(g){ return g.open; })[0] || null;
+  /* Le opportunita' aperte del palco. Dal 3 ottobre 2026 possono essere
+     piu' di una (due trattative per due date), quindi il pannellino non puo'
+     piu' dare per scontato quale aggiornare: openGigId e' quella scelta,
+     null vuol dire aprirne una nuova, e oppScelta dice se una scelta c'e'.
+     Si parte da quella del compito, se e' aperta; altrimenti, se ce n'e'
+     una sola, da lei (com'era prima); con due o piu' si sceglie. */
+  function chiusuraAperte(v){
+    return venueGigs(v).filter(function(g){ return g.open; });
+  }
+  function chiusuraSceltaIniziale(v, t){
+    var aperte = v ? chiusuraAperte(v) : [];
+    var delCompito = t && t.gig_id ? aperte.filter(function(g){ return String(g.id) === String(t.gig_id); })[0] : null;
+    if(delCompito) return {g: delCompito, scelta: true};
+    if(aperte.length === 1) return {g: aperte[0], scelta: true};
+    return {g: null, scelta: aperte.length === 0};
+  }
+  function chiusuraPrendi(d, g){
+    d.openGigId = g ? g.id : null;
+    d.oppStatus = g ? g.status : "contattato";
+    d.fee = g && g.fee != null ? String(g.fee) : "";
+  }
+  /* Come si riconosce un'opportunita' in un elenco di scelta: lo stato e
+     la data della serata, o senza data il giorno in cui e' stata aperta —
+     due "Contattato" senza altro sarebbero due righe uguali. */
+  function gigBreve(g){
+    return gigStatusInfo(g.status).label + (g.gig_date ? " · " + fmtDateShort(g.gig_date)
+      : g.created_at ? " · aperta il " + fmtDateShort(g.created_at.slice(0, 10)) : "");
   }
   /* La tabella delle varianti. Storico e opportunita' solo con Fatto su un
      palco — con Declinato il contatto non c'e' stato, e un compito senza
-     palco non ha uno storico. Il compito nuovo sempre. Il ricontatto solo
-     su un palco, e solo quando il compito nuovo ha una data. Il perche'
-     solo con Declinato. */
+     palco non ha uno storico. Il compito nuovo sempre. Il perche'
+     solo con Declinato. (L'interruttore che scriveva la data di ricontatto
+     del palco e' uscito il 3 ottobre 2026, con la data.) */
   function chiusuraVarianti(d){
     var suPalco = d.locId != null;
     var fatto = d.stato === "fatto";
@@ -9235,8 +8950,7 @@
     return {
       storico: CHIUSURA_CON_STORICO && fatto && suPalco && d.statoIniziale !== "fatto",
       opportunita: suPalco && d.stato !== "declinato",
-      perche: d.stato === "declinato",
-      ricontatto: suPalco && d.nextOn && !!d.nextDue
+      perche: d.stato === "declinato"
     };
   }
   function chiusuraVenue(d){
@@ -9249,7 +8963,8 @@
      scorso. Gli interruttori partono sempre spenti. */
   function apriChiusura(t, locId, stato, luogo){
     var v = locId != null ? venues.filter(function(x){ return String(x.id) === String(locId); })[0] : null;
-    var aperta = v ? chiusuraGigAperta(v) : null;
+    var partenza = chiusuraSceltaIniziale(v, t);
+    var aperta = partenza.g;
     chiusuraDraft = {
       taskId: String(t.id),
       stato: stato,
@@ -9260,6 +8975,7 @@
       text: "",
       oppOn: false,
       openGigId: aperta ? aperta.id : null,
+      oppScelta: partenza.scelta,
       oppStatus: aperta ? aperta.status : "contattato",
       gig_date: "",
       fee: aperta && aperta.fee != null ? String(aperta.fee) : "",
@@ -9267,7 +8983,6 @@
       nextDesc: t.description || "",
       nextDue: "",
       nextAssignee: t.assignee_email || "",
-      nextRicontatto: true,
       due: t.due_date || "",
       statoIniziale: t.status,
       assignee: t.assignee_email || "",
@@ -9385,24 +9100,25 @@
           '<input type="date" data-chiusura-field="nextDue" value="'+esc(d.nextDue)+'">'+dateClearHtml(d.nextDue)+'</div>'+
         '<div class="field-row picker" data-chiusura-persona="1"><label>Chi lo fa</label>'+
           '<div class="picker-value"><span>'+personaHtml(d.nextAssignee)+'</span>'+CHEVRON+'</div></div>';
-      // Solo con una data c'e' qualcosa da scrivere sul palco.
-      if(var_.ricontatto){
-        html += chiusuraSwitchHtml("ricontatto", d.nextRicontatto, "Aggiorna la data di ricontatto del palco");
-        html += chiusuraNotaHtml("oggi: " + esc(v && v.next_contact_date ? fmtDateShort(v.next_contact_date) : "nessuna"));
-      }
     }
-    // --- l'opportunita': nuova, o quella aperta — mai una seconda
+    // --- l'opportunita': una di quelle aperte, o una nuova
     if(var_.opportunita){
-      /* Con un'opportunita' gia' aperta la riga lo dice, e a interruttore
-         spento porta la pastiglia del suo stato: si vede a che punto e' senza
-         aprire niente. Acceso, la pastiglia sparisce: lo stato e' la prima
-         riga di quello che si apre sotto, e due volte sarebbe rumore. */
+      /* Senza opportunita' aperte l'interruttore dice "Nuova opportunità".
+         Con almeno una dice "Opportunità", e acceso fa scegliere quale
+         aggiornare o se aprirne un'altra (3 ottobre 2026: prima ce n'era al
+         massimo una, e la si aggiornava per forza). A interruttore spento la
+         pastiglia dice a che punto e' quella del compito, se ce n'e' una. */
+      var aperte = v ? chiusuraAperte(v) : [];
       var gAperta = d.openGigId && v ? venueGigs(v).filter(function(g){ return String(g.id) === String(d.openGigId); })[0] : null;
       var pastiglia = (gAperta && !d.oppOn)
         ? '<span style="margin-right:10px;">'+statusPillHtml(gigStateLabel(gAperta), gigStateColors(gAperta))+'</span>' : '';
-      html += chiusuraSwitchHtml("opp", d.oppOn, d.openGigId ? "Opportunità già aperta" : "Nuova opportunità", pastiglia);
-      if(d.oppOn){
-        if(d.openGigId) html += chiusuraNotaHtml(esc((v && v.name) || "Il palco") + " ne ha già una: la aggiorni invece di aprirne un’altra.");
+      html += chiusuraSwitchHtml("opp", d.oppOn, aperte.length ? "Opportunità" : "Nuova opportunità", pastiglia);
+      if(d.oppOn && aperte.length){
+        html += '<div class="field-row picker" data-chiusura-oppquale="1"><label>Quale</label>'+
+          '<div class="picker-value"><span'+(d.oppScelta ? '' : ' style="color:var(--text-tertiary);"')+'>'+
+            esc(!d.oppScelta ? "Scegli…" : gAperta ? gigBreve(gAperta) : "Nuova opportunità")+'</span>'+CHEVRON+'</div></div>';
+      }
+      if(d.oppOn && d.oppScelta){
         var gs = gigStatusInfo(d.oppStatus);
         html += '<div class="field-row picker" data-chiusura-oppstato="1"><label>Stato</label>'+
             '<div class="picker-value"><span class="dot" style="background:'+gs.color+'"></span><span>'+esc(gs.label)+'</span>'+CHEVRON+'</div></div>'+
@@ -9478,6 +9194,18 @@
       })});
       return true;
     }
+    if(e.target.closest("[data-chiusura-oppquale]")){
+      leggiChiusuraDraft();
+      var vq = chiusuraVenue(chiusuraDraft);
+      var dq = chiusuraDraft;
+      openSheet({title: "Quale opportunità", options: (vq ? chiusuraAperte(vq) : []).map(function(g){
+        var sv = gigStatusInfo(g.status);
+        return {label: gigBreve(g), color: sv.color, checkmark: dq.oppScelta && String(dq.openGigId) === String(g.id),
+          onSelect: function(){ if(chiusuraDraft !== dq) return; chiusuraPrendi(dq, g); dq.oppScelta = true; rinfrescaChiusura(); }};
+      }).concat([{label: "Nuova opportunità", checkmark: dq.oppScelta && !dq.openGigId,
+        onSelect: function(){ if(chiusuraDraft !== dq) return; chiusuraPrendi(dq, null); dq.oppScelta = true; rinfrescaChiusura(); }}])});
+      return true;
+    }
     if(e.target.closest("[data-chiusura-oppstato]")){
       leggiChiusuraDraft();
       var chiavi = chiusuraDraft.openGigId ? GIG_STATUSES.map(function(s){ return s.key; }) : CHIUSURA_STATI_NUOVA;
@@ -9503,8 +9231,7 @@
     return !!e.target.closest(".gig-panel.esito");
   }
   /* Gli interruttori e le date cambiano cosa si vede: all'accensione compare
-     il loro blocco, e il ricontatto compare solo quando il compito nuovo ha
-     un giorno. Il testo invece si scrive senza ridisegnare: perderesti il
+     il loro blocco. Il testo invece si scrive senza ridisegnare: perderesti il
      cursore a ogni lettera. */
   document.addEventListener("change", function(e){
     if(!chiusuraDraft) return;
@@ -9514,7 +9241,6 @@
       var k = tg.getAttribute("data-chiusura-toggle");
       if(k === "opp") chiusuraDraft.oppOn = tg.checked;
       else if(k === "next") chiusuraDraft.nextOn = tg.checked;
-      else if(k === "ricontatto") chiusuraDraft.nextRicontatto = tg.checked;
       rinfrescaChiusura();
       return;
     }
@@ -9525,7 +9251,7 @@
     if(!chiusuraDraft || !(e.target.closest && e.target.closest("[data-chiusura-field]"))) return;
     leggiChiusuraDraft();
     // La ✕ di una data svuota il campo con un "input": anche quello cambia
-    // cosa si vede (il ricontatto sparisce).
+    // cosa si vede.
     if(e.target.type === "date" && !e.target.value) rinfrescaChiusura();
   });
 
@@ -9539,14 +9265,14 @@
     if(var_.perche) body.close_note = d.close_note;
     if(var_.storico) body.activity = {kind: d.kind, text: d.text};
     if(var_.opportunita && d.oppOn){
+      if(!d.oppScelta){ toast("Scegli quale opportunità aggiornare, o una nuova"); return; }
       if(mancaLaData({status: d.oppStatus, gig_date: d.gig_date})) return;
-      body.opportunity = {expect_open_gig_id: d.openGigId, status: d.oppStatus,
+      body.opportunity = {gig_id: d.openGigId, status: d.oppStatus,
         gig_date: d.gig_date, fee: d.fee === "" ? null : d.fee};
     }
     if(d.nextOn){
       if(!(d.nextDesc || "").trim()){ toast("Scrivi cosa c’è da fare dopo"); return; }
-      body.next_task = {description: d.nextDesc, due_date: d.nextDue, assignee_email: d.nextAssignee,
-        update_next_contact: var_.ricontatto && d.nextRicontatto};
+      body.next_task = {description: d.nextDesc, due_date: d.nextDue, assignee_email: d.nextAssignee};
     }
     var luogo = d.luogo, locId = d.locId, taskId = d.taskId;
     withButtonBusy(btn, function(){
@@ -9573,17 +9299,18 @@
           applyUpdatedVenue(v);
           rinfrescaSchedaAperta(v);
           if(!chiusuraDraft) return;
-          var aperta = chiusuraGigAperta(v);
-          chiusuraDraft.openGigId = aperta ? aperta.id : null;
-          chiusuraDraft.oppStatus = aperta ? aperta.status : "contattato";
-          chiusuraDraft.fee = aperta && aperta.fee != null ? String(aperta.fee) : "";
+          // Quella scelta non e' piu' aperta: si riparte dalla scelta
+          // iniziale, che con due aperte vuol dire richiederla.
+          var partenza = chiusuraSceltaIniziale(v, null);
+          chiusuraPrendi(chiusuraDraft, partenza.g);
+          chiusuraDraft.oppScelta = partenza.scelta;
           rinfrescaChiusura();
         });
       }
     });
   }
-  /* La chiusura tocca quattro pezzi della scheda — storico, opportunita',
-     compiti, data di ricontatto — e se quel palco e' aperto dietro si
+  /* La chiusura tocca tre pezzi della scheda — storico, opportunita',
+     compiti — e se quel palco e' aperto dietro si
      rifanno tutti. Solo loro: il resto della scheda e' una bozza e non si
      tocca. */
   function rinfrescaSchedaAperta(v){
@@ -9690,16 +9417,16 @@
         '<button type="button" id="btnNewTaskSave">Salva</button>'+
       '</div>';
   }
-  /* Un compito scritto nella scheda sta sul palco, oppure sull'opportunita'
-     aperta del palco — che e' una sola, quindi la scelta e' fra lei e
-     nessuna. Senza un'opportunita' aperta la riga non c'e'. */
+  /* Un compito scritto nella scheda sta sul palco, oppure su una delle
+     opportunita' aperte del palco (piu' di una dal 3 ottobre 2026). Senza
+     opportunita' aperte la riga non c'e'. */
   function nuovoCompitoOppHtml(){
     var v = currentVenue();
-    var aperta = v ? venueGigs(v).filter(function(g){ return g.open; })[0] : null;
-    if(!aperta) return "";
-    var scelta = newTaskDraft.gig_id && String(newTaskDraft.gig_id) === String(aperta.id);
+    var aperte = v ? venueGigs(v).filter(function(g){ return g.open; }) : [];
+    if(!aperte.length) return "";
+    var scelta = aperte.filter(function(g){ return String(g.id) === String(newTaskDraft.gig_id); })[0];
     return '<div class="field-row picker" id="newTaskOpp"><label>Opportunità</label>'+
-      '<div class="picker-value"><span>'+(scelta ? esc(gigStatusInfo(aperta.status).label) : "— nessuna —")+'</span>'+CHEVRON+'</div></div>';
+      '<div class="picker-value"><span>'+(scelta ? esc(gigBreve(scelta)) : "— nessuna —")+'</span>'+CHEVRON+'</div></div>';
   }
   function readNewTaskFields(){
     if(!newTaskOpen || !newTaskDraft) return;
@@ -9738,16 +9465,16 @@
     if(e.target.closest("#newTaskOpp")){
       readNewTaskFields();
       var v = currentVenue();
-      var aperta = v ? venueGigs(v).filter(function(g){ return g.open; })[0] : null;
-      if(!aperta) return;
-      var gs = gigStatusInfo(aperta.status);
+      var aperte = v ? venueGigs(v).filter(function(g){ return g.open; }) : [];
+      if(!aperte.length) return;
       openSheet({title:"Di quale opportunità", options:[
         {label:"— nessuna, del palco —", checkmark: !newTaskDraft.gig_id,
-          onSelect:function(){ newTaskDraft.gig_id = null; renderNewTaskFields(); }},
-        {label: gs.label + (aperta.gig_date ? " · " + fmtDateShort(aperta.gig_date) : ""), color: gs.color,
-          checkmark: String(newTaskDraft.gig_id) === String(aperta.id),
-          onSelect:function(){ newTaskDraft.gig_id = aperta.id; renderNewTaskFields(); }}
-      ]});
+          onSelect:function(){ newTaskDraft.gig_id = null; renderNewTaskFields(); }}
+      ].concat(aperte.map(function(g){
+        return {label: gigBreve(g), color: gigStatusInfo(g.status).color,
+          checkmark: String(newTaskDraft.gig_id) === String(g.id),
+          onSelect:function(){ newTaskDraft.gig_id = g.id; renderNewTaskFields(); }};
+      }))});
     }
   });
 
@@ -12744,8 +12471,9 @@
       // righe con le azioni: i tondi restano dove li lasci.
       if(r.classList.contains("swipe-row")){
         var aperta = r.scrollWidth - r.clientWidth;
-        try { r.scrollTo({left: r.scrollLeft > aperta / 2 ? aperta : 0, behavior:"smooth"}); }
-        catch(err){ r.scrollLeft = r.scrollLeft > aperta / 2 ? aperta : 0; }
+        var dove = r.scrollLeft > aperta / 2 ? aperta : 0;
+        try { r.scrollTo({left: dove, behavior:"smooth"}); }
+        catch(err){ r.scrollLeft = dove; }
       }
       // Il rilascio dopo un trascinamento non è un clic: senza questo,
       // trascinare per scoprire "Elimina" finirebbe per premerlo.
@@ -12782,11 +12510,21 @@
      scorrendo la riga a sinistra. */
   var reports = [];
   var REPORT_STATI = {
+    nuovo:       {label:"Nuovo",       color:"var(--indigo)", soft:"var(--indigo-soft)"},
     da_valutare: {label:"Da valutare", color:"var(--orange)", soft:"var(--orange-soft)"},
     fatto:       {label:"Fatto",       color:"var(--green)",  soft:"var(--green-soft)"},
     rifiutato:   {label:"Rifiutato",   color:"var(--red)",    soft:"var(--red-soft)"}
   };
-  function reportStato(k){ return REPORT_STATI[k] || REPORT_STATI.da_valutare; }
+  function reportStato(k){ return REPORT_STATI[k] || REPORT_STATI.nuovo; }
+  /* Aperte sono le nuove e quelle da valutare (dal 3 ottobre 2026 sono due
+     stati: Nuovo appena arrivata, Da valutare letta e in sospeso). */
+  function reportAperta(r){ return r.status === "nuovo" || r.status === "da_valutare"; }
+  /* "2 nuove · 1 da valutare", per i sottotitoli. */
+  function reportContiAperte(elenco){
+    var n = elenco.filter(function(r){ return r.status === "nuovo"; }).length;
+    var v = elenco.filter(function(r){ return r.status === "da_valutare"; }).length;
+    return [n ? n + (n === 1 ? " nuova" : " nuove") : "", v ? v + " da valutare" : ""].filter(Boolean).join(" · ");
+  }
   var REPORT_TIPI = {
     anomalia:     {label:"Anomalia",     color:"var(--red)",  soft:"var(--red-soft)"},
     suggerimento: {label:"Suggerimento", color:"var(--blue)", soft:"var(--blue-soft)"}
@@ -12800,13 +12538,13 @@
     }).catch(function(){ /* senza segnalazioni il resto dell'app funziona lo stesso */ });
   }
   function updateReportsCount(){
-    var aperte = reports.filter(function(r){ return r.status === "da_valutare"; }).length;
+    var aperte = reports.filter(reportAperta).length;
     var el = document.getElementById("aboutReportsCount");
     // Il numero conta le aperte: quelle chiuse non chiedono piu' niente.
     el.textContent = aperte ? aperte : "";
     document.getElementById("aboutReportsSub").textContent = reports.length
       ? (reports.length + (reports.length === 1 ? " segnalazione" : " segnalazioni") +
-         (aperte ? " · " + aperte + " da valutare" : ""))
+         (aperte ? " · " + reportContiAperte(reports) : ""))
       : "Qualcosa non va, o manca?";
   }
 
@@ -12821,24 +12559,31 @@
     // citazione, e resta valida anche quando il testo viene rivisto.
     var meta = ["#" + r.id].concat([chi, r.band_name, reportQuando(r)].filter(Boolean)).join(" · ");
     var tipo = REPORT_TIPI[r.kind];
-    var riga = '<div class="row" style="cursor:default;align-items:flex-start;">'+
+    var riga = '<div class="row" style="'+(conAzioni ? '' : 'cursor:default;')+'align-items:flex-start;"'+
+        (conAzioni ? ' data-report-dettaglio="'+r.id+'"' : '')+'>'+
       '<div class="row-main">'+
         '<div class="report-text">'+
           (tipo ? '<span class="report-kind" style="background:'+tipo.soft+';color:'+tipo.color+';">'+esc(tipo.label)+'</span>' : '')+
           dato(r.text)+'</div>'+
-        '<div class="report-meta">'+dato(meta)+(r.build ? ' · <span translate="no">'+esc(r.build)+'</span>' : '')+'</div>'+
+        '<div class="report-meta">'+dato(meta)+(r.build ? ' · <span translate="no">'+esc(r.build)+'</span>' : '')+
+          (conAzioni && r.issue_number ? ' · GitHub #'+esc(String(r.issue_number)) : '')+'</div>'+
       '</div>'+
       '<div class="row-trail"><span class="row-badge" style="background:'+st.soft+';color:'+st.color+';">'+esc(st.label)+'</span></div>'+
     '</div>';
     // Senza azioni la riga non si apre nemmeno scorrendola: non promette
     // qualcosa che li' non si puo' fare.
     if(!conAzioni) return '<div class="swipe-row">'+riga+'</div>';
-    var azioni = r.status === "da_valutare"
-      ? '<button class="role" data-report-done="'+r.id+'">Fatto</button>'+
-        '<button data-report-reject="'+r.id+'">Rifiutato</button>'
-      : '<button class="role" data-report-open="'+r.id+'">Da valutare</button>';
-    return '<div class="swipe-row"><div class="row-content">'+riga+'</div>'+
-      '<div class="row-actions'+(r.status === "da_valutare" ? ' two' : '')+'">'+azioni+'</div></div>';
+    // Un'azione che porta a uno stato ha il colore della pastiglia di quello
+    // stato (INTERFACCIA.md): Fatto verde, Rifiutato rosso, Da valutare
+    // arancione — non i colori generici delle azioni.
+    var tinta = function(k){ return ' style="background:'+reportStato(k).color+';"'; };
+    var azioni = reportAperta(r)
+      ? '<button'+tinta("fatto")+' data-report-done="'+r.id+'">Fatto</button>'+
+        '<button'+tinta("rifiutato")+' data-report-reject="'+r.id+'">Rifiutato</button>'
+      : '<button'+tinta("da_valutare")+' data-report-open="'+r.id+'">Da valutare</button>';
+    return '<div class="swipe-row">'+
+      '<div class="row-content">'+riga+'</div>'+
+      '<div class="row-actions'+(reportAperta(r) ? ' two' : '')+'">'+azioni+'</div></div>';
   }
 
   /* L'elenco dentro "Informazioni sull'app" è quello personale, e lo è
@@ -12859,7 +12604,9 @@
   // Le aperte stanno in cima: cambiando stato la riga cambia posto.
   function ordinaSegnalazioni(elenco){
     elenco.sort(function(a,b){
-      var aa = a.status === "da_valutare" ? 0 : 1, bb = b.status === "da_valutare" ? 0 : 1;
+      // Aperte in cima, e fra le aperte prima le nuove (come il server).
+      var rango = function(r){ return r.status === "nuovo" ? 0 : r.status === "da_valutare" ? 1 : 2; };
+      var aa = rango(a), bb = rango(b);
       return aa - bb || (a.created_at < b.created_at ? 1 : -1);
     });
   }
@@ -12886,6 +12633,186 @@
     if(rej) return setReportStatus(Number(rej.getAttribute("data-report-reject")), "rifiutato");
     var reo = e.target.closest("[data-report-open]");
     if(reo) return setReportStatus(Number(reo.getAttribute("data-report-open")), "da_valutare");
+    var det = e.target.closest("[data-report-dettaglio]");
+    if(det) apriSegnalazione(Number(det.getAttribute("data-report-dettaglio")));
+  });
+
+  /* ---- il dettaglio di una segnalazione (admin, 3 ottobre 2026) ----
+     Tipo, stato e testo sono una bozza che scrive Salva, come le schede.
+     Il testo scritto da chi l'ha mandata non si perde: alla prima
+     correzione il server lo mette da parte, e qui si legge sotto, in
+     piccolo. "Inoltra su GitHub" crea la issue nel repository pubblico:
+     nel corpo va solo il testo, quindi prima si toglie quello che non deve
+     uscire (nomi, numeri, indirizzi). */
+  var repDraft = null;
+  var elAdminReportBody = document.getElementById("adminReportBody");
+  function segnalazioneDi(id){
+    return adminReports.filter(function(r){ return r.id === id; })[0] || null;
+  }
+  function leggiRepDraft(){
+    if(!repDraft) return;
+    var t = document.getElementById("repText"), ti = document.getElementById("repIssueTitle");
+    if(t) repDraft.text = t.value;
+    if(ti) repDraft.title = ti.value;
+  }
+  function repSporca(){
+    var r = repDraft && segnalazioneDi(repDraft.id);
+    if(!r) return false;
+    leggiRepDraft();
+    return repDraft.text.trim() !== (r.text || "").trim() || repDraft.kind !== r.kind || repDraft.status !== r.status;
+  }
+  function primaRiga(testo){
+    var t = (testo || "").trim().split("\n")[0];
+    return t.length > 80 ? t.slice(0, 79).trim() + "…" : t;
+  }
+  function renderSegnalazione(){
+    var r = segnalazioneDi(repDraft.id);
+    if(!r){ elAdminReportBody.innerHTML = ""; return; }
+    var tipo = REPORT_TIPI[repDraft.kind] || {label: "—", color: "var(--text-tertiary)"};
+    var st = reportStato(repDraft.status);
+    var chi = r.author_name || r.email || "qualcuno";
+    var html = '<div class="section-header">SEGNALAZIONE #'+r.id+'</div>'+
+      '<div class="grouped-list">'+
+        '<div class="field-row picker" id="repKind"><label>Tipo</label>'+
+          '<div class="picker-value"><span class="dot" style="background:'+tipo.color+'"></span><span>'+esc(tipo.label)+'</span>'+CHEVRON+'</div></div>'+
+        '<div class="field-row picker" id="repStatus"><label>Stato</label>'+
+          '<div class="picker-value"><span class="dot" style="background:'+st.color+'"></span><span>'+esc(st.label)+'</span>'+CHEVRON+'</div></div>'+
+        '<div class="field-row stacked"><label for="repText">Testo</label>'+
+          '<textarea id="repText" rows="7" style="text-align:left;">'+esc(repDraft.text)+'</textarea></div>'+
+      '</div>'+
+      '<div class="section-footer">'+dato([chi, r.band_name, reportQuando(r)].filter(Boolean).join(" · "))+
+        (r.build ? ' · build <span translate="no">'+esc(r.build)+'</span>' : '')+
+        (r.original_text ? '<br><br><strong>Testo originale</strong> di chi l’ha scritta:<br>'+dato(r.original_text) : '')+'</div>';
+    html += '<div class="section-header">GITHUB</div>';
+    if(r.issue_number){
+      html += '<div class="grouped-list"><div class="row" id="repIssueLink">'+
+        '<div class="row-main"><div class="row-title">Issue #'+esc(String(r.issue_number))+'</div>'+
+        '<div class="row-sub">Inoltrata il '+esc(fmtDateShort((r.issue_at || "").slice(0, 10)))+' · tocca per aprirla</div></div>'+
+        '<div class="row-trail">'+CHEVRON+'</div></div></div>'+
+        '<div class="section-footer">Le modifiche fatte qui dopo l’inoltro restano nell’app: la issue si corregge su GitHub.</div>';
+    } else {
+      html += '<div class="grouped-list">'+
+        '<div class="field-row stacked"><label for="repIssueTitle">Titolo della issue</label>'+
+          // Vuoto vuol dire "la prima riga del testo", che si vede come
+          // suggerimento e segue le correzioni del testo.
+          '<input id="repIssueTitle" type="text" style="text-align:left;" placeholder="'+esc(primaRiga(repDraft.text))+'" value="'+esc(repDraft.title)+'"></div>'+
+        '<div class="field-row picker" id="repInoltra"><span class="link-action">Inoltra su GitHub</span></div>'+
+      '</div>'+
+      '<div class="section-footer">Il repository è pubblico: la issue la può leggere chiunque. Ci va il testo qui sopra, il tipo e la build — non chi l’ha scritta né la sua band. Etichette: '+
+        (repDraft.kind === "anomalia" ? "bug" : "enhancement")+' e to-analyze.</div>';
+    }
+    elAdminReportBody.innerHTML = html;
+  }
+  function apriSegnalazione(id){
+    var r = segnalazioneDi(id);
+    if(!r) return;
+    repDraft = {id: id, text: r.text || "", kind: r.kind || "anomalia", status: r.status, title: ""};
+    document.getElementById("adminReportTitle").textContent = "Segnalazione #" + id;
+    renderSegnalazione();
+    apriPushed("adminReportScreen");
+  }
+  function chiudiSegnalazione(){
+    chiudiScartando(repSporca(), function(){ repDraft = null; chiudiPushed("adminReportScreen"); });
+  }
+  /* La segnalazione aggiornata va in tutti e due gli elenchi, come fa
+     setReportStatus. */
+  function sostituisciSegnalazione(updated){
+    [adminReports, reports].forEach(function(elenco){
+      var i = elenco.findIndex(function(r){ return r.id === updated.id; });
+      if(i > -1) elenco[i] = updated;
+      ordinaSegnalazioni(elenco);
+    });
+    renderAdminReportsList(); updateAdminReportsCount();
+    renderReportsList(); updateReportsCount();
+  }
+  function salvaSegnalazione(btn){
+    leggiRepDraft();
+    var d = repDraft; if(!d) return Promise.resolve(null);
+    if(!d.text.trim()){ toast("Il testo non può restare vuoto"); return Promise.reject(new Error("vuoto")); }
+    if(!repSporca()) return Promise.resolve(segnalazioneDi(d.id));
+    var salva = function(){
+      return api("PUT", "/api/reports/" + d.id, {text: d.text, kind: d.kind, status: d.status});
+    };
+    return (btn ? withButtonBusy(btn, salva) : salva()).then(function(updated){
+      sostituisciSegnalazione(updated);
+      return updated;
+    });
+  }
+  document.getElementById("btnAdminReportBack").addEventListener("click", chiudiSegnalazione);
+  // Eliminare si conferma col foglio dal basso (INTERFACCIA.md). Le
+  // correzioni non salvate se ne vanno con la segnalazione: non serve
+  // chiedere anche quello.
+  document.getElementById("btnAdminReportDelete").addEventListener("click", function(){
+    var r = repDraft && segnalazioneDi(repDraft.id);
+    if(!r) return;
+    var id = r.id;
+    confirmDestructive("Eliminare la segnalazione #" + id + "? Sparisce per tutti, anche per chi l’ha scritta, e non si recupera." +
+      (r.issue_number ? " La issue #" + r.issue_number + " su GitHub resta." : ""), function(){
+      api("DELETE", "/api/admin/reports/" + id).then(function(){
+        adminReports = adminReports.filter(function(x){ return x.id !== id; });
+        reports = reports.filter(function(x){ return x.id !== id; });
+        renderAdminReportsList(); updateAdminReportsCount();
+        renderReportsList(); updateReportsCount();
+        repDraft = null;
+        chiudiPushed("adminReportScreen");
+        toast("Segnalazione eliminata");
+      }).catch(function(err){ toast(err.message); });
+    });
+  });
+  document.getElementById("btnAdminReportSave").addEventListener("click", function(){
+    var btn = this;
+    salvaSegnalazione(btn).then(function(){
+      repDraft = null;
+      chiudiPushed("adminReportScreen");
+      toast("Segnalazione salvata");
+    }).catch(function(err){ if(err && err.message !== "vuoto") toast(err.message); });
+  });
+  elAdminReportBody.addEventListener("click", function(e){
+    if(!repDraft) return;
+    if(e.target.closest("#repKind")){
+      leggiRepDraft();
+      openSheet({title: "Tipo", options: Object.keys(REPORT_TIPI).map(function(k){
+        var t = REPORT_TIPI[k];
+        return {label: t.label, color: t.color, checkmark: repDraft.kind === k,
+          onSelect: function(){ if(!repDraft) return; repDraft.kind = k; renderSegnalazione(); }};
+      })});
+      return;
+    }
+    if(e.target.closest("#repStatus")){
+      leggiRepDraft();
+      openSheet({title: "Stato", options: Object.keys(REPORT_STATI).map(function(k){
+        var t = REPORT_STATI[k];
+        return {label: t.label, color: t.color, checkmark: repDraft.status === k,
+          onSelect: function(){ if(!repDraft) return; repDraft.status = k; renderSegnalazione(); }};
+      })});
+      return;
+    }
+    if(e.target.closest("#repIssueLink")){
+      var r = segnalazioneDi(repDraft.id);
+      if(r && r.issue_url) window.open(r.issue_url, "_blank", "noopener");
+      return;
+    }
+    var inoltra = e.target.closest("#repInoltra");
+    if(inoltra){
+      leggiRepDraft();
+      // Prima si salvano le correzioni, poi si inoltra: la issue prende il
+      // testo dal server, quindi deve essere gia' quello corretto.
+      openSheet({title: "Inoltrare su GitHub come issue pubblica? La legge chiunque, e il testo va come lo vedi qui sopra.",
+        options: [{label: "Inoltra", onSelect: function(){
+          var d = repDraft; if(!d) return;
+          salvaSegnalazione(null).then(function(){
+            // Salvato il testo, la pagina mostra subito l'originale messo da
+            // parte, anche se poi GitHub dicesse di no.
+            if(repDraft === d) renderSegnalazione();
+            return api("POST", "/api/admin/reports/" + d.id + "/issue",
+              {title: (d.title || "").trim() || primaRiga(d.text)});
+          }).then(function(updated){
+            sostituisciSegnalazione(updated);
+            if(repDraft && repDraft.id === updated.id){ repDraft.status = updated.status; renderSegnalazione(); }
+            toast("Issue #" + updated.issue_number + " creata su GitHub");
+          }).catch(function(err){ if(err && err.message !== "vuoto") toast(err.message); });
+        }}]});
+    }
   });
 
   /* ---- la schermata di lavorazione, sotto Admin ---- */
@@ -12901,19 +12828,19 @@
   function updateAdminReportsCount(){
     var el = document.getElementById("adminReportsCount");
     if(!el) return;
-    var aperte = adminReports.filter(function(r){ return r.status === "da_valutare"; }).length;
+    var aperte = adminReports.filter(reportAperta).length;
     el.textContent = aperte ? aperte : "";
     document.getElementById("adminReportsSub").textContent = adminReports.length
       ? (adminReports.length + (adminReports.length === 1 ? " segnalazione" : " segnalazioni") +
-         (aperte ? " · " + aperte + " da valutare" : " · tutte chiuse"))
+         (aperte ? " · " + reportContiAperte(adminReports) : " · tutte chiuse"))
       : "Di tutte le band";
   }
   function renderAdminReportsList(){
     var el = document.getElementById("adminReportsList");
     if(!el) return;
-    var aperte = adminReports.filter(function(r){ return r.status === "da_valutare"; }).length;
+    var aperte = adminReports.filter(reportAperta).length;
     document.getElementById("adminReportsHeader").textContent =
-      aperte ? (aperte === 1 ? "1 DA VALUTARE" : aperte + " DA VALUTARE") : "NESSUNA DA VALUTARE";
+      aperte ? reportContiAperte(adminReports).toUpperCase() : "NESSUNA APERTA";
     if(!adminReports.length){
       el.innerHTML = '<div class="field-row" style="color:var(--text-secondary);font-size:14px;">Nessuna segnalazione da nessuna band.</div>';
       return;
@@ -12932,6 +12859,199 @@
     setTimeout(function(){ elAdminReportsScreen.hidden = true; }, 320);
   }
   document.getElementById("rowAdminReports").addEventListener("click", openAdminReportsScreen);
+
+  /* ---------------- utenti dell'app (admin) ----------------
+     Tutti quelli che hanno fatto l'accesso, raggruppati per band. Scorrendo
+     una riga c'e' Elimina, che toglie solo la persona; la conferma e' il
+     foglio dal basso, con la domanda che dice anche cosa succede a ogni sua
+     band (INTERFACCIA.md). */
+  var adminUsers = [];
+  var elAdminUsersList = document.getElementById("adminUsersList");
+  function loadAdminUsers(){
+    if(!me || !me.is_admin) return Promise.resolve();
+    return api("GET", "/api/admin/users").then(function(data){
+      adminUsers = data;
+      renderAdminUsers();
+    }).catch(function(){});
+  }
+  function nomeUtente(u){ return u.name || u.email; }
+  function elencoNomi(persone){
+    return persone.map(function(o){ return o.name || o.email; }).join(", ");
+  }
+  /* Un gruppo per band, in ordine di nome, e in fondo chi una band non ce
+     l'ha. Chi sta in piu' band compare in ognuna. */
+  function gruppiUtenti(){
+    var perBand = {}, senza = [];
+    adminUsers.forEach(function(u){
+      if(!u.bands.length){ senza.push(u); return; }
+      u.bands.forEach(function(b){
+        var g = perBand[b.id] = perBand[b.id] || {key: String(b.id), band: b, utenti: []};
+        g.utenti.push({u: u, role: b.role});
+      });
+    });
+    var gruppi = Object.keys(perBand).map(function(k){ return perBand[k]; })
+      .sort(function(x, y){ return x.band.name.localeCompare(y.band.name, "it"); });
+    if(senza.length) gruppi.push({key: "", band: null, utenti: senza.map(function(u){ return {u: u, role: null}; })});
+    return gruppi;
+  }
+  function utenteRigaHtml(x, g){
+    var u = x.u;
+    var altre = u.bands.filter(function(b){ return !g.band || b.id !== g.band.id; })
+      .map(function(b){ return b.name; });
+    var visto = lastSeenText(u.last_seen_at);
+    var attivo = visto === "attivo ora";
+    var corpo = '<div class="row" style="cursor:default;">'+
+      '<div class="row-main"><div class="row-title">'+dato(nomeUtente(u))+(u.is_me ? " (tu)" : "")+'</div>'+
+      '<div class="row-sub">'+dato(u.email)+'</div>'+
+      (altre.length ? '<div class="row-sub">Anche in '+dato(altre.join(", "))+'</div>' : '')+
+      '<div class="member-seen">'+(attivo ? '<span class="seen-dot"></span>' : '')+
+        esc((visto ? visto + " · " : "") + "dal " + fmtDateShort((u.created_at || "").slice(0, 10)) +
+          (u.is_admin ? " · admin dell’app" : ""))+'</div>'+
+      '</div>'+
+      (x.role ? '<div class="row-trail"><span class="member-role">'+esc(ROLE_LABELS[x.role] || x.role)+'</span></div>' : '')+
+    '</div>';
+    // Su se stessi niente azioni: senza row-actions la riga non scorre.
+    if(u.is_me)
+      return '<div class="swipe-row"><div class="row-content">'+corpo+'</div></div>';
+    return '<div class="swipe-row"><div class="row-content">'+corpo+'</div>'+
+      '<div class="row-actions">'+
+        '<button data-utente-del="'+esc(u.email)+'" data-utente-gruppo="'+g.key+'">Elimina</button>'+
+      '</div>'+
+    '</div>';
+  }
+  function renderAdminUsers(){
+    document.getElementById("adminUsersCount").textContent = adminUsers.length || "";
+    if(!adminUsers.length){
+      elAdminUsersList.innerHTML = '<div class="section-header">UTENTI</div>'+
+        '<div class="grouped-list"><div class="field-row" style="color:var(--text-secondary);font-size:14px;">Nessun utente.</div></div>';
+      return;
+    }
+    elAdminUsersList.innerHTML = gruppiUtenti().map(function(g){
+      var n = g.utenti.length;
+      var testa = g.band
+        ? g.band.name + " · " + (n === 1 ? "1 componente" : n + " componenti") + " · " +
+          (g.band.venue_count === 1 ? "1 palco" : g.band.venue_count + " palchi")
+        : "Senza band · " + n;
+      return '<div class="section-header">'+(g.band ? dato(testa) : esc(testa))+'</div>'+
+        '<div class="grouped-list">'+g.utenti.map(function(x){ return utenteRigaHtml(x, g); }).join("")+'</div>';
+    }).join("");
+  }
+  /* Quello che una band diventa dopo: chi ci resta, se resta senza
+     nessuno, a chi passa il ruolo di Leader. Le band non si cancellano da
+     qui (scelta di Stefano, 3 ottobre 2026): una band se ne andrebbe con
+     tutti i suoi palchi, e nell'app non c'e' modo di tornare indietro. */
+  function utenteBandaSub(u, b){
+    var palchi = b.venue_count === 1 ? "1 palco" : b.venue_count + " palchi";
+    if(!b.others.length)
+      return "Resta senza componenti, con i suoi " + palchi + ": la elimini poi da Admin › Band.";
+    var testo = "Resta a " + elencoNomi(b.others) + ".";
+    var altriLeader = b.others.some(function(o){ return o.role === "leader"; });
+    if(b.role === "leader" && !altriLeader)
+      testo += " Il ruolo di Leader passa a " + (b.others[0].name || b.others[0].email) + ".";
+    return testo;
+  }
+  /* Eliminare si conferma col foglio che sale dal basso (INTERFACCIA.md).
+     La domanda dice anche cosa succede a ogni sua band, perche' e' quello
+     che serve sapere prima di toccare Conferma. */
+  function confermaEliminaUtente(email){
+    var u = adminUsers.filter(function(x){ return x.email === email; })[0];
+    if(!u) return;
+    var domanda = "Eliminare " + nomeUtente(u) + " dall’app? Esce dalle sue band e perde l’accesso; palchi, serate e note che ha scritto restano alle band." +
+      u.bands.map(function(b){ return " " + b.name + ": " + utenteBandaSub(u, b); }).join("");
+    confirmDestructive(domanda, function(){
+      api("POST", "/api/admin/users/delete", {email: email}).then(function(data){
+        adminUsers = data;
+        renderAdminUsers();
+        toast("Utente eliminato");
+        // Togliere l'ultimo componente lascia una band vuota: in Admin › Band
+        // deve comparire subito con 0 utenti, pronta da eliminare.
+        loadAdminBands();
+      }).catch(function(err){ toast(err.message); });
+    });
+  }
+  elAdminUsersList.addEventListener("click", function(e){
+    var azione = e.target.closest("[data-utente-del]");
+    if(azione) confermaEliminaUtente(azione.getAttribute("data-utente-del"));
+  });
+  var elAdminUsersScreen = document.getElementById("adminUsersScreen");
+  function openAdminUsersScreen(){
+    renderAdminUsers();
+    apriPushed("adminUsersScreen");
+    loadAdminUsers();
+  }
+  function closeAdminUsersScreen(){
+    chiudiPushed("adminUsersScreen");
+  }
+  document.getElementById("rowAdminUsers").addEventListener("click", openAdminUsersScreen);
+
+  /* ---------------- band dell'app (admin) ----------------
+     Quante persone e quanti palchi ha ogni band. Scorrendo si elimina, ma
+     solo una band senza componenti (scelta di Stefano, 3 ottobre 2026):
+     con qualcuno dentro la riga non scorre e il server rifiuta comunque.
+     Le persone si tolgono prima, da Admin › Utenti. La conferma e' il
+     foglio dal basso, come ogni eliminazione (INTERFACCIA.md). */
+  var adminBands = [];
+  var elAdminBandsList = document.getElementById("adminBandsList");
+  function loadAdminBands(){
+    if(!me || !me.is_admin) return Promise.resolve();
+    return api("GET", "/api/admin/bands").then(function(data){
+      adminBands = data;
+      renderAdminBands();
+    }).catch(function(){});
+  }
+  function renderAdminBands(){
+    document.getElementById("adminBandsCount").textContent = adminBands.length || "";
+    document.getElementById("adminBandsHeader").textContent =
+      adminBands.length === 1 ? "1 BAND" : adminBands.length + " BAND";
+    if(!adminBands.length){
+      elAdminBandsList.innerHTML = '<div class="field-row" style="color:var(--text-secondary);font-size:14px;">Nessuna band.</div>';
+      return;
+    }
+    elAdminBandsList.innerHTML = adminBands.map(function(b){
+      var dove = [b.genre, b.city].filter(Boolean).join(" · ");
+      var conti = (b.member_count === 1 ? "1 utente" : b.member_count + " utenti") + " · " +
+        (b.venue_count === 1 ? "1 palco" : b.venue_count + " palchi");
+      var corpo = '<div class="row" style="cursor:default;">'+
+        '<div class="row-main"><div class="row-title">'+dato(b.name)+'</div>'+
+        (dove ? '<div class="row-sub">'+dato(dove)+'</div>' : '')+
+        '<div class="row-sub"'+(b.member_count ? '' : ' style="color:var(--destructive);"')+'>'+esc(conti)+'</div>'+
+        '<div class="member-seen">'+esc("dal " + fmtDateShort((b.created_at || "").slice(0, 10)))+'</div>'+
+        '</div></div>';
+      // Con dei componenti la riga non scorre: senza row-actions non c'e'
+      // niente a cui agganciarsi.
+      if(b.member_count)
+        return '<div class="swipe-row"><div class="row-content">'+corpo+'</div></div>';
+      return '<div class="swipe-row"><div class="row-content">'+corpo+'</div>'+
+        '<div class="row-actions"><button data-banda-del="'+b.id+'">Elimina</button></div>'+
+      '</div>';
+    }).join("");
+  }
+  /* Eliminare si conferma col foglio che sale dal basso (INTERFACCIA.md). */
+  elAdminBandsList.addEventListener("click", function(e){
+    var azione = e.target.closest("[data-banda-del]");
+    if(!azione) return;
+    var id = Number(azione.getAttribute("data-banda-del"));
+    var b = adminBands.filter(function(x){ return x.id === id; })[0];
+    if(!b) return;
+    var palchi = b.venue_count === 1 ? "1 palco" : b.venue_count + " palchi";
+    confirmDestructive("Eliminare la band " + b.name + "? Non ha più componenti; se ne va con " + palchi +
+      ", serate, compiti, cassa e foto, e dall’app non si recupera. Prima viene fatta una copia del database.", function(){
+      api("DELETE", "/api/admin/bands/" + id).then(function(data){
+        adminBands = data;
+        renderAdminBands();
+        toast("Band eliminata");
+      }).catch(function(err){ toast(err.message); });
+    });
+  });
+  function openAdminBandsScreen(){
+    renderAdminBands();
+    apriPushed("adminBandsScreen");
+    loadAdminBands();
+  }
+  function closeAdminBandsScreen(){ chiudiPushed("adminBandsScreen"); }
+  document.getElementById("rowAdminBands").addEventListener("click", openAdminBandsScreen);
+  document.getElementById("btnAdminBandsBack").addEventListener("click", closeAdminBandsScreen);
+  document.getElementById("btnAdminUsersBack").addEventListener("click", closeAdminUsersScreen);
   document.getElementById("btnAdminReportsBack").addEventListener("click", closeAdminReportsScreen);
 
   /* Il tipo si sceglie fra due pastiglie, e finché non ne scegli una il
@@ -13180,27 +13300,6 @@
     });
   });
 
-  /* Le due code vecchie dell'Agenda: l'interruttore dice "nascondi", il
-     server salva "visibili". Chi lo gira le vede sparire o tornare subito;
-     gli altri alla prossima /api/me. */
-  var elAgendaOldListsToggle = document.getElementById("agendaOldListsToggle");
-  function agendaAdminRefresh(){
-    return api("GET", "/api/admin/agenda").then(function(st){
-      elAgendaOldListsToggle.checked = !(st && st.old_lists);
-    }).catch(function(){});
-  }
-  elAgendaOldListsToggle.addEventListener("change", function(){
-    var nascoste = elAgendaOldListsToggle.checked;
-    api("PUT", "/api/admin/agenda", {old_lists: !nascoste}).then(function(st){
-      if(me) me.agenda_old_lists = !!st.old_lists;
-      applyAgendaOldLists(st.old_lists);
-      toast(nascoste ? "Da contattare e Da pianificare nascoste" : "Da contattare e Da pianificare visibili");
-    }).catch(function(err){
-      elAgendaOldListsToggle.checked = !nascoste;
-      toast(err.message);
-    });
-  });
-
   /* ---- avvisi di scadenza dei compiti ----
      Il giro lo fa il server da solo; qui si sceglie da che ora, si vede
      cosa e' partito e, per provare, si fa un giro subito. */
@@ -13256,8 +13355,9 @@
     renderGeoSection();
     pushRefresh();
     telegramRefresh();
-    agendaAdminRefresh();
     promemoriaRefresh();
+    loadAdminUsers();
+    loadAdminBands();
     requestAnimationFrame(function(){ elAdminScreen.classList.add("in"); });
   }
 
@@ -13796,10 +13896,10 @@
       document.getElementById("sectionAdminHeader").hidden = !me.is_admin;
       document.getElementById("rowSettingsAdminWrap").hidden = !me.is_admin;
       document.getElementById("sectionAdminFooter").hidden = !me.is_admin;
-      applyAgendaOldLists(me.agenda_old_lists);
       // Uno Slaker non puo' scrivere: il "+" lo porterebbe solo a un errore.
       // La barriera vera resta sul server, questo e' per non farlo sbattere.
       document.getElementById("fabAdd").hidden = (me.can_write === false);
+      document.getElementById("btnAddGig").hidden = (me.can_write === false);
       // Prima chi sei, poi la band: presentarsi viene prima di
       // qualunque dato, e chi entra da un invito la band ce l'ha gia'.
       if(me.email && !me.profile_completed) openProfileSetup();
@@ -13851,6 +13951,47 @@
     if(!v){ toast("Questo palco non c'\u00e8 pi\u00f9"); return; }
     if(v.deleted_at){ toast("\u00ab" + (v.name || "Questo palco") + "\u00bb \u00e8 nel cestino"); return; }
     openDetail(v.id);
+  }
+
+  /* Arrivo da una scorciatoia dell'icona (tieni premuta l'icona su Android:
+     sono gli "shortcuts" di manifest.json, 3 ottobre 2026). Ognuna apre
+     /?azione=... e qui si fa quello che dice il nome. */
+  function apriAzioneDalLink(){
+    var params = new URLSearchParams(window.location.search);
+    var azione = params.get("azione");
+    if(!azione) return;
+    history.replaceState(null, "", window.location.pathname);
+    var puoScrivere = !(me && me.can_write === false);
+    if(azione === "nuovo-palco"){
+      if(!puoScrivere){ toast("Sei Slaker: puoi consultare i dati ma non aggiungerne"); return; }
+      apriTab("list");
+      document.getElementById("fabAdd").click();
+    } else if(azione === "nuovo-compito"){
+      apriTab("recontact");
+      setAgendaView("tasks");
+      elBtnAddAgendaTask.click();
+    } else if(azione === "miei-compiti"){
+      apriTab("recontact");
+      tasksFiltro = "miei";
+      setAgendaView("tasks");
+    } else if(azione === "nuova-opportunita"){
+      if(!puoScrivere){ toast("Sei Slaker: puoi consultare i dati ma non aggiungerne"); return; }
+      apriTab("gigs");
+      apriGigsNew();
+    }
+  }
+
+  /* Arrivo dalla notifica di una segnalazione nuova (/?segnalazioni=1): si
+     apre Altro › Admin › Segnalazioni. Solo per l'admin — la notifica va
+     solo a loro, ma un link si puo' anche copiare. */
+  function apriSegnalazioniDalLink(){
+    var params = new URLSearchParams(window.location.search);
+    if(!params.get("segnalazioni")) return;
+    history.replaceState(null, "", window.location.pathname);
+    if(!(me && me.is_admin)) return;
+    apriTab("settings");
+    openAdminScreen();
+    openAdminReportsScreen();
   }
 
   /* Arrivo dall'avviso di scadenza di un compito (/c/123): il server ha
@@ -14019,6 +14160,9 @@
   addEdgeSwipeBack(elVenueListScreen, closeVenueListScreen);
   addEdgeSwipeBack(elReportsScreen, closeReportsScreen);
   addEdgeSwipeBack(elAdminReportsScreen, closeAdminReportsScreen);
+  addEdgeSwipeBack(document.getElementById("adminReportScreen"), chiudiSegnalazione);
+  addEdgeSwipeBack(elAdminUsersScreen, closeAdminUsersScreen);
+  addEdgeSwipeBack(document.getElementById("adminBandsScreen"), closeAdminBandsScreen);
   addEdgeSwipeBack(elVenueListEditScreen, closeVenueListEditScreen);
   addEdgeSwipeBack(elProfileScreen, closeProfileScreen);
   addEdgeSwipeBack(elMyBandsScreen, closeMyBandsScreen);
@@ -14209,10 +14353,54 @@
     });
   }
 
+  /* Le notifiche accese "di default" (3 ottobre 2026, chiesto da Stefano).
+     Davvero da sole non si puo': il permesso lo concede la persona, con un
+     tocco — Chrome e Safari non lasciano chiederlo senza. Quindi:
+     - se il permesso c'e' gia' (su Android capita: Chrome l'aveva dato al
+       sito) e manca l'iscrizione, ci si iscrive in silenzio;
+     - se il permesso non e' mai stato chiesto e l'app e' quella installata,
+       alla prima apertura compare una volta sola il foglio "Attiva le
+       notifiche", e il tocco su quel pulsante e' il gesto che serve;
+     - chi le spegne dall'interruttore non se le ritrova riaccese: lo dice
+       miopalco.push-spente, che vale per questo dispositivo. */
+  var PUSH_SPENTE = "miopalco.push-spente", PUSH_CHIESTO = "miopalco.push-chiesto";
+  function leggiFlag(k){ try { return localStorage.getItem(k) === "1"; } catch(e){ return false; } }
+  function scriviFlag(k, on){ try { if(on) localStorage.setItem(k, "1"); else localStorage.removeItem(k); } catch(e){} }
+  function appInstallata(){
+    return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+  }
+  function pushAvvioAutomatico(){
+    if(!pushSupportato() || leggiFlag(PUSH_SPENTE)) return;
+    if(Notification.permission === "denied") return;
+    return api("GET", "/api/push/config").then(function(cfg){
+      pushConfig = cfg;
+      if(!cfg || !cfg.enabled) return;
+      return pushIscrizione().then(function(iscrizione){
+        if(iscrizione) return;
+        if(Notification.permission === "granted"){
+          return pushAccendi().catch(function(){});
+        }
+        if(!appInstallata() || leggiFlag(PUSH_CHIESTO)) return;
+        scriviFlag(PUSH_CHIESTO, true);
+        openSheet({
+          title: "Vuoi le notifiche su questo telefono? Ti avvisano dei compiti in scadenza" +
+            (me && me.is_admin ? " e delle segnalazioni nuove" : "") +
+            ". Si spengono quando vuoi da Altro › Impostazioni.",
+          options: [{label: "Attiva le notifiche", onSelect: function(){
+            pushAccendi().then(function(){ toast("Notifiche accese su questo dispositivo"); })
+              .catch(function(errore){ toast(errore.message === "Permesso negato"
+                ? "Notifiche non attivate: si accendono da Altro › Impostazioni" : (errore.message || "Notifiche non attivate")); });
+          }}]
+        });
+      });
+    }).catch(function(){});
+  }
+
   elPushToggle.addEventListener("change", function(){
     if(pushBusy){ elPushToggle.checked = !elPushToggle.checked; return; }
     pushBusy = true;
     var acceso = elPushToggle.checked;
+    scriviFlag(PUSH_SPENTE, !acceso);
     (acceso ? pushAccendi() : pushSpegni()).then(function(esito){
       if(esito && typeof esito.devices === "number") pushConfig.devices = esito.devices;
       toast(acceso ? "Notifiche accese su questo dispositivo" : "Notifiche spente su questo dispositivo");
@@ -14293,7 +14481,7 @@
   /* ---------------- boot ---------------- */
   // loadMe per primo: decide se c'e' una band attiva, e senza quella le
   // altre chiamate risponderebbero 409.
-  loadMe().then(loadAllData).then(showInviteOutcome).then(apriPalcoDalLink).then(apriCompitoDalLink);
+  loadMe().then(loadAllData).then(showInviteOutcome).then(apriPalcoDalLink).then(apriCompitoDalLink).then(apriSegnalazioniDalLink).then(apriAzioneDalLink).then(pushAvvioAutomatico);
 })();
 
 /* ---------------- aggiornamenti dell'app ----------------
