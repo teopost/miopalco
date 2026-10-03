@@ -5727,8 +5727,11 @@
      rifiutata o annullata il giorno in cui l'hai segnata), dalla piu'
      recente. */
   function dataEsito(g){ return g.closed_at || ""; }
+  /* I gruppi delle aperte seguono il percorso, dal primo passo all'ultimo:
+     Contattato, Trattativa, Confermato (3 ottobre 2026, scelta di Stefano;
+     prima erano al contrario, le confermate in cima). */
   function gruppiPerStato(righe){
-    var ordine = GIG_STATUSES.map(function(s){ return s.key; }).reverse();
+    var ordine = GIG_STATUSES.map(function(s){ return s.key; });
     var gruppi = {};
     righe.forEach(function(x){ (gruppi[x.g.status] = gruppi[x.g.status] || []).push(x); });
     return ordine.filter(function(k){ return gruppi[k]; }).map(function(k){
