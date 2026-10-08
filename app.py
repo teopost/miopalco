@@ -9538,6 +9538,11 @@ class Handler(BaseHTTPRequestHandler):
         host = self.headers.get("Host", "miopalco.com")
         percorso = self.path if self.path.startswith("/") else "/login"
         indirizzo = "https://" + host + percorso
+        # Fuori dall'app si va dritti a Google (con l'invito, se c'era):
+        # passare di nuovo dalla pagina di accesso era un tocco in piu' per
+        # arrivare allo stesso pulsante.
+        if not percorso.startswith("/auth/google"):
+            percorso = "/auth/google"
         e_ios = sistema_di(self.headers.get("User-Agent")) == "iOS"
         testa = f'<h2>Sei nel browser di {html.escape(app_nome)}</h2>'
         if e_ios:
@@ -9590,6 +9595,20 @@ class Handler(BaseHTTPRequestHandler):
         # Su GitHub Pages il manifest non c'e'. Qui serve: e' quello che fa
         # installare a Chrome l'app vera invece di una scorciatoia al sito.
         body = body.replace("</head>", '<link rel="manifest" href="/manifest.json?v=2">\n</head>', 1)
+        # Chi vede la landing qui non ha la sessione, quindi «Apri MioPalco»
+        # porta dritto a Google invece che alla pagina col pulsante Google:
+        # un tocco in meno. Dal browser di Facebook su Android il pulsante
+        # apre direttamente il browser vero, gia' diretto a Google; su
+        # iPhone non si puo' e resta la pagina di accesso, che spiega come.
+        ua = self.headers.get("User-Agent")
+        verso = "/auth/google"
+        if browser_interno(ua):
+            if sistema_di(ua) == "iOS":
+                verso = "/login"
+            else:
+                verso = ("intent://" + self.headers.get("Host", "miopalco.com")
+                         + "/auth/google#Intent;scheme=https;end")
+        body = body.replace('href="https://miopalco.com/login"', 'href="' + html.escape(verso) + '"')
         self._registra_visita("landing")
         body_bytes = body.encode("utf-8")
         self.send_response(200)
