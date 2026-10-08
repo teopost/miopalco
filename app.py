@@ -2449,12 +2449,23 @@ def notify_login(conn, email, primo_accesso):
     ))
 
 
+# La zona della richiesta in corso (vedi Handler._zona_visita), messa qui
+# all'inizio di ogni richiesta: il rientro si scopre in fondo a
+# get_session_email, che degli header non sa niente. Un thread per
+# richiesta (ThreadingHTTPServer), quindi niente si mescola.
+_richiesta = threading.local()
+
+
+def zona_richiesta():
+    return getattr(_richiesta, "zona", None)
+
+
 def registra_rientro(conn, email, ultimo_iso, adesso):
     """Chi rientra nell'app con la sessione che ha gia', dopo essere stato
     via abbastanza da essere un ingresso nuovo e non la stessa sessione di
     lavoro che continua. Fino al 7 ottobre 2026 arrivava su Telegram."""
     registra("rientro", email, band=banda_di(conn, email),
-             assente_da=da_quanto(ultimo_iso, adesso))
+             assente_da=da_quanto(ultimo_iso, adesso), zona=zona_richiesta())
 
 
 # --- le notifiche push sul telefono -------------------------------------
@@ -9584,7 +9595,38 @@ class Handler(BaseHTTPRequestHandler):
             if ref and ref != (self.headers.get("Host") or "").split(":")[0]:
                 da = ref
         registra("visita", pagina=pagina, browser=browser_interno(ua),
-                 sistema=sistema_di(ua), da=da)
+                 sistema=sistema_di(ua), da=da, zona=zona_richiesta())
+
+    def _zona_visita(self):
+        """Da dove arriva la visita, all'ingrosso: citta' e regione come le
+        stima Cloudflare dall'IP. L'IP non si legge e non si scrive da
+        nessuna parte: Cloudflare manda gia' il risultato negli header, se
+        nella dashboard e' acceso «Add visitor location headers» (Rules ›
+        Transform Rules › Managed Transforms). Spento, resta solo il paese
+        (CF-IPCountry), e fuori dal tunnel niente. Sui telefoni in rete
+        mobile la citta' e' spesso quella dell'operatore (Milano, Roma):
+        la regione e' piu' affidabile."""
+        h = self.headers
+
+        # Cloudflare le manda in UTF-8, http.server le legge come latin-1:
+        # senza rimetterle a posto Forli' diventava "ForlÃ¬".
+        def utf8(v):
+            v = (v or "").strip()
+            try:
+                return v.encode("latin-1").decode("utf-8")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                return v
+        citta = utf8(h.get("cf-ipcity"))
+        regione = utf8(h.get("cf-region"))
+        paese = (h.get("CF-IPCountry") or "").strip().upper()
+        if paese in ("XX", "T1"):
+            paese = ""
+        parti = [x for x in (citta, regione) if x]
+        if paese and paese != "IT":
+            parti.append(paese)
+        if not parti and paese:
+            parti.append(paese)
+        return ", ".join(parti) or None
 
     def _send_landing(self):
         try:
@@ -9733,7 +9775,8 @@ class Handler(BaseHTTPRequestHandler):
                 # Per ultimo: cosi' chi entra con un invito si porta gia'
                 # dietro la band nel messaggio.
                 registra("registrazione" if primo_accesso else "accesso", email,
-                         band=banda_di(conn, email), invito="si" if invite_token else None)
+                         band=banda_di(conn, email), invito="si" if invite_token else None,
+                         zona=zona_richiesta())
                 notify_login(conn, email, primo_accesso)
             finally:
                 conn.close()
@@ -9919,6 +9962,7 @@ class Handler(BaseHTTPRequestHandler):
     def _dispatch(self, method):
         parsed = urlparse(self.path)
         path = parsed.path
+        _richiesta.zona = self._zona_visita()
 
         if self._handle_auth_route(method, path, parsed):
             return

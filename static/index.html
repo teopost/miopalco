@@ -922,6 +922,8 @@
   .reg-dettagli b{font-weight:600;color:var(--text);}
   .reg-traccia{margin:6px 0 0;padding:8px;border-radius:8px;background:var(--fill);font-size:11px;line-height:1.35;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text);}
   .reg-errore .row-title{color:var(--destructive);}
+  /* Una persona nuova si vede a colpo d'occhio scorrendo il registro. */
+  .reg-nuovo{box-shadow:inset 4px 0 0 var(--green);}
   .sheet-thumb{flex:none;width:34px;height:34px;border-radius:50%;object-fit:cover;background:var(--fill);}
   /* Una voce con la riga di sotto (opzione "sub"): allineata a sinistra,
      perche' due righe centrate non si leggono. La usano i profili Instagram
@@ -13581,10 +13583,14 @@
       if(c.browser) parti.push("browser di " + c.browser);
       if(c.sistema) parti.push(c.sistema);
       if(c.da) parti.push("da " + c.da);
+      if(c.zona) parti.push(c.zona);
     } else if(r.event === "avvio"){
       if(c.build) parti.push("build " + c.build);
     }
     if(c.band) parti.push(c.band);
+    // La zona (citta', regione) la danno Visita e, dall'8 ottobre 2026,
+    // anche Registrazione, Accesso e Rientro.
+    if(c.zona && r.event !== "visita" && r.event !== "verso_google") parti.push(c.zona);
     return parti.filter(Boolean).join(" · ");
   }
   function regCorrisponde(r, q){
@@ -13617,7 +13623,7 @@
         if((k === "email" || k === "utente") && regDati.names[v]) v = regDati.names[v] + " (" + v + ")";
         return '<div><b>'+esc(k.replace(/_/g, " "))+'</b> '+dato(v)+'</div>';
       }).join("");
-      return '<div class="row'+(r.event === "errore" ? ' reg-errore' : '')+(regAperte[chiave] ? ' reg-aperta' : '')+'" data-reg="'+esc(chiave)+'">'+
+      return '<div class="row'+(r.event === "errore" ? ' reg-errore' : '')+(r.event === "registrazione" ? ' reg-nuovo' : '')+(regAperte[chiave] ? ' reg-aperta' : '')+'" data-reg="'+esc(chiave)+'">'+
         '<div class="row-main"><div class="row-title">'+esc(regEtichetta(r.event))+'</div>'+
         '<div class="row-sub">'+dato(regRiassunto(r))+'</div>'+
         '<div class="reg-dettagli">'+campi+(r.detail ? '<pre class="reg-traccia">'+esc(r.detail)+'</pre>' : '')+'</div>'+
