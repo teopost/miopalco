@@ -46,6 +46,14 @@ rilegge prima di ogni ridisegno, così quello che hai scritto non sparisce.
 - Anche le scelte fatte da un foglio (stato, tipo, città…) restano in bozza
   fino a Salva. Si salvano subito solo le cose che non sono campi della
   scheda: preferito, foto, note, serate, compiti.
+- **Nella scheda del palco Salva resta sulla scheda** (dal 5 ottobre 2026):
+  salva, dice «Palco salvato» e ridisegna le righe, senza toccare la nota
+  che stai scrivendo. Per uscire c'è Indietro, che a scheda pulita non chiede
+  niente. Le altre schede per ora chiudono ancora salvando.
+- **Nella scheda del palco Salva è grigio e non si tocca** finché non c'è
+  niente da salvare, e si accende alla prima modifica, scritta o scelta da
+  un foglio (dal 5 ottobre 2026, `aggiornaSalvaPalco` con la classe
+  `spento`). Dopo il salvataggio torna grigio. Le altre schede per ora no.
 - Il pulsante per tornare indietro porta il nome della schermata da cui si
   arriva («Admin», «Altro», «Segnalazioni»), non «Indietro», salvo nelle
   schermate di modifica.
@@ -74,6 +82,24 @@ rilegge prima di ogni ridisegno, così quello che hai scritto non sparisce.
   nella barra in alto accanto a Salva.
 - Il trascinamento col mouse scatta aperto o chiuso, mai a metà, e il
   rilascio non conta come clic.
+- **Aprendo una scheda le sue righe scorse si richiudono**
+  (`chiudiScorrimenti`, dopo averla resa visibile). Le righe disegnate da
+  un elenco ripartono chiuse da sole; quelle fisse nell'HTML (i social con
+  «Prendi la copertina» nel palco e nell'art director, la riga Posizione
+  con «Ricerca avanzata» nel palco) no, e il 5 ottobre
+  2026 si ritrovavano aperte rientrando, anche in un altro palco. Una
+  scheda nuova con righe scorrevoli fisse va aggiunta allo stesso modo.
+
+## Elenchi da cui si sceglie più di una cosa
+
+- Quando una schermata intera serve a scegliere più righe (i palchi della
+  zona proposti alla band nuova, dal 7 ottobre 2026), ogni riga si tocca
+  per intero e ha in coda un cerchio che si riempie del colore `--tint`
+  con la spunta (`.partenza-check`). Partono tutte scelte, in cima c'è
+  «Togli tutti / Scegli tutti», l'intestazione dice «N DI M SCELTI» e il
+  pulsante in fondo dice quante cose fa («Carica 8 palchi»), spento a zero.
+  Nei fogli dal basso resta invece la spunta di `openSheet` con
+  `multiSelect`.
 
 ## Nomi, classi, id
 
@@ -96,6 +122,10 @@ rilegge prima di ogni ridisegno, così quello che hai scritto non sparisce.
   quell'elenco e cosa no.
 - I `section-footer` spiegano con parole semplici cosa fa una sezione,
   soprattutto quando la regola non si vede dalle righe.
+- In un foglio di scelta, quando per scegliere bene serve più del nome,
+  la voce ha una seconda riga in piccolo (opzione `sub` di `openSheet`,
+  allineata a sinistra). Per esempio i profili Instagram trovati mostrano
+  follower, post e la descrizione del profilo, come la mostrerebbe Google.
 - Dopo un'azione arriva un `toast` breve: «Segnalazione eliminata»,
   «Compito aggiunto».
 
@@ -104,6 +134,10 @@ rilegge prima di ogni ridisegno, così quello che hai scritto non sparisce.
 - Il palco e l'opportunità hanno due vocabolari diversi: `VENUE_STATUSES`
   (Lead, Prospect, Interessato, Cliente, Inattivo, Archiviato) e
   `GIG_STATUSES`. I colori vengono sempre da lì, mai scritti a mano.
+- **Sulla mappa non ci sono i palchi Inattivi** (dal 7 ottobre 2026,
+  `sullaMappa`): restano nell'elenco, e sulla mappa tornano solo se nei
+  Filtri è spuntato lo stato Inattivo, o quel segnalino solo se lo cerchi
+  per nome nella ricerca della mappa.
 - La pastiglia del palco ha il bordo (`.row-badge.contorno`), quella
   dell'opportunità è piena. Tutte e due stanno in coda alla riga, a destra.
 
@@ -133,6 +167,16 @@ rilegge prima di ogni ridisegno, così quello che hai scritto non sparisce.
 - Le schermate secondarie sono `section.screen.pushed`: si aprono con
   `apriPushed(id)`, si chiudono con `chiudiPushed(id)` e si registrano in
   `addEdgeSwipeBack`, per tornare indietro con lo scorrimento dal bordo.
+- **L'Indietro del telefono** (tasto o scorrimento dal bordo su Android)
+  fa quello che fa il pulsante in alto a sinistra della schermata in cima:
+  lo preme davvero (`indietroDelTelefono`), quindi valgono le sue regole,
+  «Uscire senza salvare?» compreso. Un foglio aperto si chiude per primo;
+  con niente da chiudere l'app si chiude. Funziona perché l'app tiene una
+  voce in più nella cronologia (`armaIndietro`). Fino al 7 ottobre 2026
+  Indietro su Android chiudeva l'app da qualunque schermata. Conseguenza:
+  **una schermata secondaria deve avere il suo pulsante per tornare come
+  primo `button.nav-btn` della `.navbar-row`**, altrimenti Indietro esce
+  dall'app.
 - **Menu Altro**: una voce nuova va in *Tabelle* se è una lista da cui si
   sceglie, in *Impostazioni* se vale per una persona o un dispositivo, in
   *Altro* se è un'anagrafica o si usa spesso. Le cose dell'amministratore

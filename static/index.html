@@ -222,6 +222,7 @@
   .navbar-row .nav-btn.destructive{color:var(--destructive);}
   .navbar-row .nav-btn.primary{font-weight:600;}
   .navbar-row .nav-btn:disabled{opacity:.5;cursor:default;}
+  .navbar-row .nav-btn.spento{color:var(--text-tertiary);opacity:1;}
   /* display:flex batte [hidden], come per .field-row e .row-actions: senza
      questa riga il + resta li' mentre il suo form e' gia' aperto, e lo
      stesso valeva per quello della Cassa. */
@@ -433,6 +434,8 @@
   .row-title{font-size:16px;font-weight:590;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .row-sub{font-size:13px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px;}
   .row-sub .type-tag{color:var(--tint);font-weight:600;}
+  /* I km da qui, quando l'elenco e' ordinato per distanza. */
+  .row-sub .km-dist{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums;}
   .row-trail{flex:none;display:flex;align-items:center;gap:6px;}
   .fav-star{flex:none;display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;background:none;border:none;color:var(--text-tertiary);cursor:pointer;}
   .fav-star.active{color:#f5a623;}
@@ -904,7 +907,28 @@
   .sheet-option + .sheet-option{border-top:.5px solid var(--separator);}
   /* La foto del profilo dentro il foglio: su un elenco di nomi utente che si
      somigliano tutti e' l'unica cosa che fa riconoscere il locale. */
+  /* La casella dei palchi della zona: un cerchio, pieno quando il palco
+     e' scelto. Le righe si toccano per intero. */
+  .partenza-check{flex:none;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--text-tertiary);display:flex;align-items:center;justify-content:center;color:#fff;}
+  .partenza-km{flex:none;font-size:13px;color:var(--text-secondary);font-variant-numeric:tabular-nums;}
+  .partenza-check.on{background:var(--tint);border-color:var(--tint);}
+  .partenza-check svg{visibility:hidden;}
+  .partenza-check.on svg{visibility:visible;}
+  /* Admin › Registro: la riga si apre al tocco e mostra tutti i campi. */
+  .reg-ora{flex:none;font-size:13px;color:var(--text-secondary);font-variant-numeric:tabular-nums;align-self:flex-start;margin-top:2px;}
+  .reg-dettagli{display:none;margin-top:6px;font-size:12px;color:var(--text-secondary);}
+  .reg-aperta .reg-dettagli{display:block;}
+  .reg-dettagli div{white-space:normal;overflow-wrap:anywhere;}
+  .reg-dettagli b{font-weight:600;color:var(--text);}
+  .reg-traccia{margin:6px 0 0;padding:8px;border-radius:8px;background:var(--fill);font-size:11px;line-height:1.35;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text);}
+  .reg-errore .row-title{color:var(--destructive);}
   .sheet-thumb{flex:none;width:34px;height:34px;border-radius:50%;object-fit:cover;background:var(--fill);}
+  /* Una voce con la riga di sotto (opzione "sub"): allineata a sinistra,
+     perche' due righe centrate non si leggono. La usano i profili Instagram
+     trovati, con follower, post e la descrizione del profilo. */
+  .sheet-option.con-sub{justify-content:flex-start;text-align:left;}
+  .sheet-option.con-sub .sheet-testo{flex:1;min-width:0;}
+  .sheet-sub{display:block;margin-top:3px;font-size:13px;line-height:1.35;color:var(--text-secondary);white-space:normal;}
   .sheet-option.destructive{color:var(--destructive);}
   .sheet-option .dot{width:10px;height:10px;border-radius:50%;flex:none;}
   .sheet-option .check{margin-left:4px;}
@@ -1269,6 +1293,11 @@
           <div class="row-trail"><span class="row-badge" id="adminBandsCount" style="background:var(--fill);color:var(--text-secondary);"></span>
           <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
         </div>
+        <div class="row" id="rowAdminRegistro">
+          <div class="row-main"><div class="row-title">Registro</div>
+          <div class="row-sub">Accessi, band, palchi della zona, errori</div></div>
+          <div class="row-trail"><svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
+        </div>
       </div>
 
       <div class="section-header">TEMPLATE PER LE BAND NUOVE</div>
@@ -1324,11 +1353,14 @@
       <div class="grouped-list">
         <div class="field-row"><label style="flex:1;">Senza posizione</label><span id="geoTodo">0</span></div>
         <div class="field-row"><label style="flex:1;">Già sulla mappa</label><span id="geoDone">0</span></div>
+        <div class="field-row"><label style="flex:1;">Posizione incerta</label><span id="geoIncerti">0</span></div>
       </div>
       <div class="section-footer">Cerca il punto partendo dal nome del locale, dall’indirizzo e dalla città, e lo salva: da lì il palco compare sulla mappa e nella sua scheda arriva il pulsante Mappa. Si può chiedere una posizione al secondo, quindi ci vuole qualche minuto: si può fermare quando vuoi, e quello che è passato resta fatto. Chi ha già un punto non viene toccato.</div>
       <div class="grouped-list" id="geoStartWrap">
         <div class="field-row picker" id="rowGeoStart"><span class="link-action">Trova le posizioni mancanti</span></div>
+        <div class="field-row picker" id="rowGeoIncerti"><span class="link-action">Ricalcola le posizioni incerte</span></div>
       </div>
+      <div class="section-footer"><strong>Ricalcola le posizioni incerte</strong> rifà la ricerca per i palchi di cui si conosce solo la città (il segnalino arancione), con nome, indirizzo e città di adesso: serve dopo averli corretti. Se trova il locale il punto si sposta lì; se trova di nuovo solo la città, il palco resta com’era.</div>
       <div id="geoRunning" hidden>
         <div class="grouped-list">
           <div class="field-row stacked">
@@ -1351,7 +1383,7 @@
           </label>
         </div>
       </div>
-      <div class="section-footer" id="telegramFoot">Gli avvisi al bot quando qualcuno entra nell’app. Spento, il bot tace per tutti; il token resta dov’è, e riaccendendolo i messaggi ripartono da lì. Vale subito.</div>
+      <div class="section-footer" id="telegramFoot">Un avviso al bot quando si registra un utente nuovo (gli accessi di chi c’era già finiscono nel registro, in <code>data/logs</code>). Spento, il bot tace per tutti; il token resta dov’è, e riaccendendolo i messaggi ripartono da lì. Vale subito.</div>
 
       <div class="section-header">NOTIFICHE PUSH</div>
       <div class="grouped-list">
@@ -1376,6 +1408,21 @@
       </div>
       <div class="section-footer" id="promemoriaFoot">A chi ha un compito da fare arriva una notifica 8 giorni prima della scadenza e un sollecito 2 giorni prima, se non è ancora fatto. Solo a chi ha acceso le notifiche su almeno un dispositivo. Prima dell’ora scelta (ora italiana) non parte niente.</div>
       <div class="grouped-list" id="promemoriaRecenti" hidden></div>
+
+      <div class="section-header">PALCHI DELLA ZONA PER LE BAND NUOVE</div>
+      <div class="grouped-list">
+        <div class="field-row picker" id="rowPartenzaRaggio">
+          <label style="flex:1;">Raggio</label>
+          <div class="picker-value"><span id="partenzaRaggioValue">40 km</span>
+          <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
+        </div>
+        <div class="field-row picker" id="rowPartenzaMassimo">
+          <label style="flex:1;">Massimo</label>
+          <div class="picker-value"><span id="partenzaMassimoValue">10</span>
+          <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
+        </div>
+      </div>
+      <div class="section-footer">Chi crea la sua prima band, una volta sola, si vede proporre i palchi che le altre band hanno già nella zona della sua città. Passano solo quelli con foto, indirizzo, città e posizione precisa, non archiviati; lo stesso locale in più rubriche compare una volta. Si copiano nome, tipo, indirizzo, posizione, foto, sito e social: titolare, telefoni, email, note e serate restano dove sono, e la band d’origine non si vede.</div>
 
       <div class="section-header">ESPORTAZIONE</div>
       <div class="grouped-list">
@@ -1910,6 +1957,40 @@
     </div>
   </section>
 
+  <!-- ============ PUSHED: REGISTRO (admin) ============
+       Il file data/logs/miopalco.log letto dal telefono (7 ottobre 2026):
+       un giorno alla volta, dalla riga piu' recente. -->
+  <section class="screen pushed" id="adminRegistroScreen" data-titolo-grande hidden>
+    <header class="navbar">
+      <div class="navbar-row">
+        <button class="nav-btn" id="btnAdminRegistroBack">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Admin
+        </button>
+        <span class="inline-title">Registro</span>
+        <span class="nav-btn" style="visibility:hidden;">Admin</span>
+      </div>
+    </header>
+    <div class="screen-scroll">
+      <div class="grouped-list" style="margin-top:12px;">
+        <div class="field-row picker" id="rowRegGiorno">
+          <label style="flex:1;">Giorno</label>
+          <div class="picker-value"><span id="regGiornoValue">Oggi</span>
+          <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
+        </div>
+        <div class="field-row picker" id="rowRegFatto">
+          <label style="flex:1;">Fatto</label>
+          <div class="picker-value"><span id="regFattoValue">Tutti</span>
+          <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
+        </div>
+        <div class="field-row"><input id="regCerca" type="search" placeholder="Cerca persona, email, band…" style="text-align:left;" autocomplete="off"></div>
+      </div>
+      <div class="section-header" id="regHeader">RIGHE</div>
+      <div class="grouped-list" id="regLista"></div>
+      <div class="section-footer">Un file al giorno in <code>data/logs</code> sul server, tenuto 180 giorni. Il giorno cambia alle 2 di notte (mezzanotte del server, che va in UTC). Tocca una riga per vedere tutti i dettagli; gli errori hanno anche il traceback.</div>
+    </div>
+  </section>
+
   <!-- ============ PUSHED: DETTAGLIO DI UNA SEGNALAZIONE (admin) ============
        Si apre toccando una segnalazione in Admin › Segnalazioni (3 ottobre
        2026): tipo, stato e testo si correggono e si salvano con Salva, e da
@@ -2428,7 +2509,14 @@
   <!-- ============ WIZARD: BENVENUTO ============ -->
   <section class="screen pushed" id="wizardScreen" hidden>
     <header class="navbar">
-      <div class="navbar-row"><span class="inline-title">Benvenuto</span></div>
+      <div class="navbar-row">
+        <button class="nav-btn" id="btnWizardBack">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Il tuo profilo
+        </button>
+        <span class="inline-title">Benvenuto</span>
+        <span class="nav-btn" style="visibility:hidden;">Il tuo profilo</span>
+      </div>
     </header>
     <div class="screen-scroll">
       <div style="text-align:center;padding:28px 24px 4px;">
@@ -2455,6 +2543,31 @@
           <div class="row-title" style="color:var(--tint);font-weight:600;">Continua</div>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- ============ PALCHI DELLA ZONA (una volta sola, dopo il wizard) ============ -->
+  <section class="screen pushed" id="partenzaScreen" hidden>
+    <header class="navbar">
+      <div class="navbar-row"><span class="inline-title">La tua zona</span></div>
+    </header>
+    <div class="screen-scroll">
+      <div style="text-align:center;padding:28px 24px 4px;">
+        <div style="font-size:20px;font-weight:700;" id="partenzaTitolo">Ci sono palchi nella tua zona</div>
+        <div style="font-size:14px;color:var(--text-secondary);margin-top:6px;" id="partenzaTesto"></div>
+      </div>
+      <div class="section-header" id="partenzaHeader">PALCHI</div>
+      <div class="grouped-list" id="partenzaLista"></div>
+      <div class="section-footer">Arrivano come Lead, con nome, tipo, indirizzo, posizione, foto, sito e social. Telefoni, email e titolare non ci sono: li aggiungi tu quando li conosci. Te lo chiediamo solo adesso.</div>
+      <div class="grouped-list" style="margin-top:20px;">
+        <div class="row" id="btnPartenzaCarica" style="justify-content:center;">
+          <div class="row-title" style="color:var(--tint);font-weight:600;" id="partenzaCaricaLabel">Carica</div>
+        </div>
+        <div class="row" id="btnPartenzaNo" style="justify-content:center;">
+          <div class="row-title" style="color:var(--text-secondary);font-weight:400;">No, grazie</div>
+        </div>
+      </div>
+      <div style="height:40px;"></div>
     </div>
   </section>
 
@@ -2601,6 +2714,24 @@
       </div>
       <div class="section-footer" id="nearMeFooter">Usa la posizione del telefono per mostrare solo i palchi entro il raggio scelto. Funzionano solo i palchi con coordinate geografiche già impostate.</div>
 
+      <div class="grouped-list">
+        <div class="field-row">
+          <label for="posIncertaToggle" style="flex:1;">Solo posizione incerta</label>
+          <label class="ios-switch">
+            <input type="checkbox" id="posIncertaToggle">
+            <span class="ios-switch-track"><span class="ios-switch-thumb"></span></span>
+          </label>
+        </div>
+        <div class="field-row">
+          <label for="senzaIndirizzoToggle" style="flex:1;">Solo senza indirizzo</label>
+          <label class="ios-switch">
+            <input type="checkbox" id="senzaIndirizzoToggle">
+            <span class="ios-switch-track"><span class="ios-switch-thumb"></span></span>
+          </label>
+        </div>
+      </div>
+      <div class="section-footer">Posizione incerta: i palchi di cui si conosce solo la città — sulla mappa hanno il segnalino <strong style="color:var(--orange);">arancione</strong>, messo al centro del paese — e quelli senza posizione. Aprili uno alla volta e tocca <strong>Posizione</strong> dopo aver corretto indirizzo o città, oppure scorri la riga per la ricerca avanzata. Senza indirizzo: i palchi con la via vuota, anche se la città c'è.</div>
+
       <!-- Fuori dai Preferiti: li' gli archiviati non compaiono mai, e un
            interruttore che non fa niente e' peggio che non averlo. -->
       <div id="filtersArchiveSection">
@@ -2671,14 +2802,40 @@
 
       <div class="section-header">DOVE</div>
       <div class="grouped-list">
+        <div class="field-row"><label for="fAddress">Indirizzo</label><input id="fAddress" type="text" placeholder="Via, civico"></div>
+        <div class="field-row"><label for="fLocality">Località</label><input id="fLocality" type="text" placeholder="Frazione o località"></div>
+        <div class="field-row picker" id="rowFCity">
+          <label>Città</label>
+          <div class="picker-value"><span id="fCityValue" style="color:var(--text-tertiary);">Scegli una città</span>
+          <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
+        </div>
+        <div class="swipe-row"><div class="row-content">
+          <div class="field-row picker" id="rowCercaPosizione">
+            <label>Posizione</label>
+            <div class="picker-value"><span id="posizioneValue" style="color:var(--text-tertiary);">—</span></div>
+          </div>
+        </div><div class="row-actions" id="azioniPosizione" hidden><button class="social-azione" type="button">Ricerca avanzata</button></div></div>
+        <div id="posizionePanel" hidden></div>
+        <!-- Le coordinate restano, ma non si scrivono a mano: sono il
+             risultato della geocodifica, non un dato da battere a tastiera.
+             Restano qui dentro perche' la scheda le rimanda al server come
+             tutto il resto — toglierle dal modulo vorrebbe dire cancellarle
+             al primo salvataggio. -->
+        <input id="fLat" type="hidden">
+        <input id="fLng" type="hidden">
+      </div>
+      <div class="section-footer">Tocca <strong>Posizione</strong> e il punto si ricava dal nome, dall’indirizzo e dalla città scritti qui sopra: le coordinate compaiono nella riga e non si scrivono a mano. Toccandola di nuovo la cerca da capo, utile se hai appena corretto l’indirizzo. Se trova solo il centro città, <strong>scorri</strong> la riga per la <strong>Ricerca avanzata</strong>: prova l’indirizzo scritto in altri modi (Viale invece di Via, senza iniziali…) e prima di salvare ti chiede se il punto è giusto.</div>
+
+      <div class="section-header">INFO PALCO</div>
+      <div class="grouped-list">
         <div class="field-row picker" id="rowType">
           <label>Tipo</label>
           <div class="picker-value"><span id="typeValue">— nessuno —</span>
           <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
         </div>
         <!-- I tag sono l'unica riga di questa scheda che non e' del
-             palco ma tua. Sta qui in mezzo alle altre, e non in una
-             sezione sua, perche' e' li' che la si cerca: si legge come le
+             palco ma tua. Sta qui in mezzo alle altre righe di Info
+             palco, e non in una sezione sua, perche' e' li' che la si cerca: si legge come le
              altre etichette del posto. -->
         <div class="field-row picker" id="rowTags">
           <label>Tag</label>
@@ -2695,28 +2852,6 @@
           <div class="picker-value"><span id="contextValue">— nessuno —</span>
           <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
         </div>
-        <div class="field-row"><label for="fAddress">Indirizzo</label><input id="fAddress" type="text" placeholder="Via, civico"></div>
-        <div class="field-row picker" id="rowFCity">
-          <label>Città</label>
-          <div class="picker-value"><span id="fCityValue" style="color:var(--text-tertiary);">Scegli una città</span>
-          <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
-        </div>
-        <div class="field-row picker" id="rowCercaPosizione">
-          <label>Cerca posizione</label>
-          <div class="picker-value"><span id="posizioneValue" style="color:var(--text-tertiary);">—</span></div>
-        </div>
-        <!-- Le coordinate restano, ma non si scrivono a mano: sono il
-             risultato della geocodifica, non un dato da battere a tastiera.
-             Restano qui dentro perche' la scheda le rimanda al server come
-             tutto il resto — toglierle dal modulo vorrebbe dire cancellarle
-             al primo salvataggio. -->
-        <input id="fLat" type="hidden">
-        <input id="fLng" type="hidden">
-      </div>
-      <div class="section-footer">Tocca <strong>Cerca posizione</strong> e il punto si ricava dal nome, dall’indirizzo e dalla città scritti qui sopra: le coordinate compaiono nella riga e non si scrivono a mano. Toccandola di nuovo la cerca da capo, utile se hai appena corretto l’indirizzo.</div>
-
-      <div class="section-header">INFO PALCO</div>
-      <div class="grouped-list">
         <div class="field-row"><label for="fCapacity">Capienza</label><input id="fCapacity" type="number" inputmode="numeric" placeholder="150"></div>
         <div class="field-row picker" id="rowFGenre">
           <label>Genere / vibe</label>
@@ -3314,7 +3449,10 @@
   var filterTags = [];
   function filterTagsAttivi(){ return filterTags.length > 0; }
   function filtroVuoto(sel){ return !sel || !sel.length; }
-  function filtroPrende(sel, valore){ return filtroVuoto(sel) || sel.indexOf(valore) > -1; }
+  /* Un campo vuoto si filtra come il valore "": e' la voce «Senza tipo»,
+     che serve a trovare i palchi a cui il tipo manca ancora per darglielo. */
+  var SENZA_VALORE = "";
+  function filtroPrende(sel, valore){ return filtroVuoto(sel) || sel.indexOf(valore || SENZA_VALORE) > -1; }
   /* Quello che si legge nella riga: niente se sono tutti, il nome se ne hai
      scelto uno, il conto se sono di piu'. Tre nomi di fila non ci stanno in
      una riga e verrebbero tagliati a meta'. */
@@ -3350,6 +3488,22 @@
      stella e' di chi guarda, il focus e' della band. */
   var filterSoloPreferiti = false;
   var filterSoloFocus = false;
+  /* I palchi la cui posizione va controllata: trovata solo la citta'
+     (geo_precision "centro" o "centro incerto"), o nessuna posizione. Sulla
+     mappa i primi hanno il segnalino arancione; il filtro li mette in fila
+     per sistemarli uno alla volta (5 ottobre 2026). NULL vuol dire "non si
+     sa" — punti trovati prima che la precisione si salvasse — e non conta
+     come incerto. */
+  var filterPosIncerta = false;
+  var COLORE_POS_INCERTA = "var(--orange)";
+  function posizioneIncerta(v){
+    if(v.lat == null || v.lat === "" || v.lng == null || v.lng === "") return true;
+    return /^centro/.test(v.geo_precision || "");
+  }
+  /* I palchi con la via vuota, citta' o no: sono quelli da completare
+     prima di poter cercare una posizione precisa (5 ottobre 2026). */
+  var filterSenzaIndirizzo = false;
+  function senzaIndirizzo(v){ return !(v.address || "").trim(); }
   var nearMeEnabled = false;
   var nearMeRadiusKm = 30;
   var nearMeCoords = null;
@@ -3569,8 +3723,9 @@
   /* Il compenso che e' arrivato davvero: serata suonata e spunta Incassato
      accesa (gigs.fee_paid). E' la regola della Cassa, e vale per ogni
      numero che dice "incassato", cosi' Home, Agenda e Cassa non litigano.
-     Il compenso medio invece guarda gigFee: il prezzo di una serata non
-     cambia perche' il bonifico e' in ritardo. */
+     Anche il compenso medio, dal 5 ottobre 2026: incassato diviso le serate
+     incassate. Prima guardava gigFee (il prezzo pattuito, incassato o no),
+     ma Stefano lo vuole come media di quello che e' arrivato davvero. */
   function gigIncassato(g){
     return g.status === "suonato" && g.fee_paid !== false ? gigFee(g) : 0;
   }
@@ -3874,7 +4029,7 @@
     var quest = played.filter(function(x){ return gigYear(x.g) === anno; });
     var incasso = quest.reduce(function(t, x){ return t + gigIncassato(x.g); }, 0);
     var conFee = quest.filter(function(x){ return gigFee(x.g) > 0; });
-    var compensi = conFee.reduce(function(t, x){ return t + gigFee(x.g); }, 0);
+    var incassate = quest.filter(function(x){ return gigIncassato(x.g) > 0; });
     document.getElementById("homeSub").textContent = "Stagione " + anno;
     renderHomeTitle();
     // Intestazione si', numeri no: finche' manca una delle due meta'.
@@ -3920,7 +4075,8 @@
         prossime.length ? ("la prima il " + fmtDateShort(prossime[0].gig_date)) : "nessuna confermata",
         false, false, "recontact:gigs") +
       (vedoInHome("incassi_tiles")
-        ? tileHtml(conFee.length ? fmtEuro(compensi / conFee.length) : "—", "media a serata") +
+        ? tileHtml(incassate.length ? fmtEuro(incasso / incassate.length) : "—", "media a serata",
+            incassate.length ? ("su " + incassate.length + (incassate.length === 1 ? " serata incassata" : " serate incassate")) : "") +
           tileHtml(fmtEuro(incasso), "incassati nel " + anno,
             conFee.length < quest.length ? ("compenso segnato su " + conFee.length + " di " + quest.length) : "")
         : "") +
@@ -4102,10 +4258,12 @@
     }
     elSheetGroup.innerHTML = customHtml + filtered.map(function(x){
       var o = x.o;
-      return '<button class="sheet-option'+(o.destructive?' destructive':'')+'" data-i="'+x.i+'">'+
+      var etichetta = (o.dato ? dato(o.label) : esc(o.label));
+      if(o.sub) etichetta = '<span class="sheet-testo">'+etichetta+'<span class="sheet-sub">'+dato(o.sub)+'</span></span>';
+      return '<button class="sheet-option'+(o.destructive?' destructive':'')+(o.sub?' con-sub':'')+'" data-i="'+x.i+'">'+
         (o.thumb ? '<img class="sheet-thumb" src="'+esc(o.thumb)+'" alt="" loading="lazy">' : '') +
         (o.color ? '<span class="dot" style="background:'+o.color+'"></span>' : '') +
-        (o.dato ? dato(o.label) : esc(o.label)) +
+        etichetta +
         (o.checkmark ? ' <span class="check">✓</span>' : '') +
         '</button>';
     }).join("") + hintHtml;
@@ -4426,7 +4584,7 @@
 
   function filtriVuoti(){
     return {status:[], type:[], category:[], owner:[], regione:[], provincia:[],
-            tags:[], soloPreferiti:false, soloFocus:false,
+            tags:[], soloPreferiti:false, soloFocus:false, posIncerta:false, senzaIndirizzo:false,
             nearMe:false, nearMeKm:30, nearMeCoords:null, liste:{}, sortBy:"name"};
   }
   function snapshotFiltri(){
@@ -4436,7 +4594,8 @@
             owner:filterOwner.slice(),
             regione:(filterRegione||[]).slice(), provincia:(filterProvincia||[]).slice(),
             tags:filterTags.slice(),
-            soloPreferiti:filterSoloPreferiti, soloFocus:filterSoloFocus,
+            soloPreferiti:filterSoloPreferiti, soloFocus:filterSoloFocus, posIncerta:filterPosIncerta,
+            senzaIndirizzo:filterSenzaIndirizzo,
             nearMe:nearMeEnabled, nearMeKm:nearMeRadiusKm, nearMeCoords:nearMeCoords,
             liste:liste, sortBy:sortBy};
   }
@@ -4451,6 +4610,7 @@
     filterProvincia = (snap.provincia || []).slice();
     filterTags = (snap.tags || []).slice();
     filterSoloPreferiti = !!snap.soloPreferiti; filterSoloFocus = !!snap.soloFocus;
+    filterPosIncerta = !!snap.posIncerta; filterSenzaIndirizzo = !!snap.senzaIndirizzo;
     nearMeEnabled = snap.nearMe; nearMeRadiusKm = snap.nearMeKm; nearMeCoords = snap.nearMeCoords;
     VENUE_LISTS.forEach(function(L){ L.filter = (snap.liste[L.key] || []).slice(); });
     sortBy = snap.sortBy;
@@ -4465,7 +4625,7 @@
     return (snap.status || []).length || (snap.type || []).length || (snap.category || []).length
         || (snap.owner || []).length || (snap.regione || []).length || (snap.provincia || []).length
         || (snap.tags || []).length
-        || snap.soloPreferiti || snap.soloFocus || snap.nearMe
+        || snap.soloPreferiti || snap.soloFocus || snap.posIncerta || snap.senzaIndirizzo || snap.nearMe
         || Object.keys(liste).some(function(k){ return (liste[k] || []).length; });
   }
   /* Il passaggio di consegne fra le due schermate: quella che lasci si
@@ -4517,7 +4677,9 @@
         : (uno ? uno.label : filterStatus.length + " stati");
   }
   function renderFilterTypeRow(){
-    setDato("filterTypeValue", etichettaFiltro(filterType, "tipi"), "Tutti i tipi");
+    setDato("filterTypeValue", etichettaFiltro(filterType, "tipi", function(t){
+      return t === SENZA_VALORE ? "Senza tipo" : t;
+    }), "Tutti i tipi");
   }
   function renderFilterCategoryRow(){
     setDato("filterCategoryValue", etichettaFiltro(filterCategory, "categorie"), "Tutte");
@@ -4573,7 +4735,8 @@
     apriFiltroMulti({
       titolo:"Filtra per tipo", cerca:"Cerca tipo…",
       scelti: filterType,
-      voci: venueTypes.map(function(t){ return {valore:t.name, label:t.name, dato:true}; }),
+      voci: [{valore:SENZA_VALORE, label:"Senza tipo", dato:true}].concat(
+        venueTypes.map(function(t){ return {valore:t.name, label:t.name, dato:true}; })),
       onDone:function(scelti){ filterType = scelti; renderFilterTypeRow(); renderAll(); }
     });
   });
@@ -4610,6 +4773,20 @@
   elFilterFocusToggle.addEventListener("change", function(){
     filterSoloFocus = elFilterFocusToggle.checked;
     renderList(); renderFavorites(); updateFilterActiveDot();
+  });
+
+  var elPosIncertaToggle = document.getElementById("posIncertaToggle");
+  function renderPosIncertaRow(){ elPosIncertaToggle.checked = filterPosIncerta; }
+  elPosIncertaToggle.addEventListener("change", function(){
+    filterPosIncerta = elPosIncertaToggle.checked;
+    renderAll(); updateFilterActiveDot();
+  });
+
+  var elSenzaIndirizzoToggle = document.getElementById("senzaIndirizzoToggle");
+  function renderSenzaIndirizzoRow(){ elSenzaIndirizzoToggle.checked = filterSenzaIndirizzo; }
+  elSenzaIndirizzoToggle.addEventListener("change", function(){
+    filterSenzaIndirizzo = elSenzaIndirizzoToggle.checked;
+    renderAll(); updateFilterActiveDot();
   });
 
   var RADIUS_PRESETS_KM = [5, 10, 20, 30, 50, 100];
@@ -4697,6 +4874,7 @@
     document.getElementById("rowFilterTag").hidden = !tagVocabolario().length;
     renderSegniRows();
     renderNearMeRow();
+    renderPosIncertaRow(); renderSenzaIndirizzoRow();
     renderShowDeletedRow();
     document.getElementById("filtersArchiveSection").hidden = (filterScope === "favorites");
     elFiltersScreen.hidden = false;
@@ -4719,9 +4897,9 @@
     filterStatus = []; filterType = []; filterCategory = []; filterOwner = []; filterTags = [];
     resetVenueListFilters();
     resetGeoFilters();
-    filterSoloPreferiti = false; filterSoloFocus = false;
+    filterSoloPreferiti = false; filterSoloFocus = false; filterPosIncerta = false; filterSenzaIndirizzo = false;
     nearMeEnabled = false; nearMeCoords = null; nearMeRadiusKm = 30;
-    renderFilterStatusRow(); renderFilterTypeRow(); renderFilterCategoryRow(); renderGeoFilterRows(); renderVenueListFilterRows(); renderFilterOwnerRow(); renderFilterTagRow(); renderSegniRows(); renderNearMeRow(); renderAll();
+    renderFilterStatusRow(); renderFilterTypeRow(); renderFilterCategoryRow(); renderGeoFilterRows(); renderVenueListFilterRows(); renderFilterOwnerRow(); renderFilterTagRow(); renderSegniRows(); renderNearMeRow(); renderPosIncertaRow(); renderSenzaIndirizzoRow(); renderAll();
     if(!opts.tieniArchiviati && showDeletedEnabled){ showDeletedEnabled = false; renderShowDeletedRow(); renderAll(); }
   }
   document.getElementById("btnFiltersReset").addEventListener("click", function(){
@@ -4758,6 +4936,8 @@
     if(!filtroPrende(filterOwner, v.owner_email)) return false;
     if(filterSoloPreferiti && !sonoPreferito(v.id)) return false;
     if(filterSoloFocus && !v.focus) return false;
+    if(filterPosIncerta && !posizioneIncerta(v)) return false;
+    if(filterSenzaIndirizzo && !senzaIndirizzo(v)) return false;
     // Basta che ne abbia uno di quelli chiesti: due tag spuntati allargano
     // l'elenco, non lo stringono. "Anni 80 oppure estivi" e' la domanda che
     // uno si fa; "anni 80 e anche estivi" quasi mai, e per quella c'e' la
@@ -4790,7 +4970,7 @@
   function palcoCorrisponde(v, testo){
     if(!testo) return true;
     var q = testo.toLowerCase().trim();
-    var hay = ((v.name||"") + " " + (v.city||"") + " " + (v.type||"")).toLowerCase();
+    var hay = ((v.name||"") + " " + (v.city||"") + " " + (v.locality||"") + " " + (v.type||"")).toLowerCase();
     if(hay.indexOf(q) > -1) return true;
     var cifre = soloCifre(q);
     // Solo se quello che hai scritto e' un numero: in «Bar 2000» le cifre
@@ -4873,7 +5053,13 @@
         leadingHtml+
         '<div class="row-main"><div class="row-title">'+dato(v.name||"Senza nome")+'</div>'+
         (subParts.length ? '<div class="row-sub">'+subParts.join(" · ")+'</div>' : '')+
-        (v.city ? '<div class="row-sub">'+dato(v.city)+'</div>' : '')+
+        (function(){
+          // Ordinati per distanza, accanto alla citta' i km da qui.
+          var km = sortBy === "distanza" ? distanzaKm(v) : null;
+          if(!v.city && km == null) return '';
+          return '<div class="row-sub">'+(v.city ? dato(v.city) : '')+
+            (km != null ? (v.city ? ' · ' : '')+'<span class="km-dist">'+(posizioneApprossimata(v) ? '~' : '')+esc(kmTesto(km))+'</span>' : '')+'</div>';
+        })()+
         (showOwner && v.owner_email ? '<div class="row-sub">di '+dato(ownerLabel(v.owner_email))+'</div>' : '')+
         (showLastContact ? '<div class="row-sub" style="color:var(--text-tertiary);">'+esc(ultimoContattoLabel(v))+'</div>' : '')+
         tagsHtml+'</div>'+
@@ -4916,7 +5102,10 @@
     {key:"context",     label:"Contesto",     get:function(v){ return v.context || ""; }},
     {key:"seasonality", label:"Stagionalità", get:function(v){ return v.seasonality || ""; }},
     {key:"live_period", label:"Periodo",      get:function(v){ return v.live_period || ""; }},
-    {key:"owner",       label:"Proprietario", get:function(v){ return v.owner_email ? ownerLabel(v.owner_email) : ""; }}
+    {key:"owner",       label:"Proprietario", get:function(v){ return v.owner_email ? ownerLabel(v.owner_email) : ""; }},
+    // Dal piu' vicino alla posizione di adesso (3 ottobre 2026). Non ha un
+    // get: ha un suo confronto, in venueSorter, e la cella mostra i km.
+    {key:"distanza",    label:"Distanza"}
   ];
   var sortBy = "name";
   function sortOption(){
@@ -4925,8 +5114,49 @@
   function perNome(a, b){
     return (a.name||"").localeCompare(b.name||"", "it", {sensitivity:"base"});
   }
+  /* La posizione per l'ordine per distanza: quella appena chiesta, oppure
+     quella che l'app sa gia' dal filtro «Vicino a me» o dalla mappa. */
+  var posizioneOrdine = null;
+  function posizioneAttuale(){ return posizioneOrdine || nearMeCoords || mapUserCoords || null; }
+  /* In linea d'aria, non su strada: e' quello che si puo' sapere senza
+     chiedere a un servizio di percorsi. null se manca un punto. */
+  function distanzaKm(v){
+    var p = posizioneAttuale();
+    if(!p || v.lat == null || v.lng == null || v.lat === "" || v.lng === "") return null;
+    return haversineKm(p.lat, p.lng, Number(v.lat), Number(v.lng));
+  }
+  function kmTesto(km){
+    return km < 10 ? km.toFixed(1).replace(".", ",") + " km" : Math.round(km) + " km";
+  }
+  /* Un punto condiviso da piu' palchi e' quasi sempre il centro del comune:
+     la ricerca della posizione non ha trovato l'indirizzo e ha messo li'
+     tutti quelli della citta' (al 3 ottobre 2026, 243 palchi su 597). La
+     loro distanza e' dal centro, quindi si scrive con «~». La precisione
+     non e' salvata sul database: la si riconosce cosi'. */
+  var puntiCondivisi = null;
+  function posizioneApprossimata(v){
+    if(!puntiCondivisi){
+      puntiCondivisi = {};
+      venues.forEach(function(x){
+        if(x.lat == null || x.lng == null || x.lat === "" || x.lng === "") return;
+        var k = Number(x.lat).toFixed(5) + "," + Number(x.lng).toFixed(5);
+        puntiCondivisi[k] = (puntiCondivisi[k] || 0) + 1;
+      });
+    }
+    return (puntiCondivisi[Number(v.lat).toFixed(5) + "," + Number(v.lng).toFixed(5)] || 0) > 1;
+  }
   function venueSorter(){
     var o = sortOption();
+    if(o.key === "distanza"){
+      // I palchi senza posizione in fondo, in ordine di nome: in cima
+      // nasconderebbero quelli vicini, che sono il motivo dell'ordine.
+      return function(a, b){
+        var da = distanzaKm(a), db = distanzaKm(b);
+        if((da == null) !== (db == null)) return da == null ? 1 : -1;
+        if(da != null && da !== db) return da - db;
+        return perNome(a, b);
+      };
+    }
     if(!o.get) return perNome;
     return function(a, b){
       if(o.rank){
@@ -4953,16 +5183,35 @@
       title:"Ordina per",
       options: SORT_OPTIONS.map(function(o){
         return {label:o.label, checkmark: sortBy === o.key, onSelect:function(){
+          if(o.key === "distanza"){ ordinaPerDistanza(); return; }
           sortBy = o.key; renderSortRow(); renderList(); renderFavorites();
           toast(o.key === "name" ? "Ordinato per nome" : "Ordinato per " + o.label.toLowerCase());
         }};
       })
     });
   }
+  /* Per ordinare per distanza serve la posizione di adesso: si chiede ogni
+     volta che si sceglie (una posizione vecchia di un'ora, in giro per
+     locali, ordina male), e se non arriva l'ordine resta quello di prima. */
+  function ordinaPerDistanza(){
+    if(!("geolocation" in navigator)){ toast("Geolocalizzazione non disponibile su questo browser"); return; }
+    toast("Rilevo la posizione…");
+    navigator.geolocation.getCurrentPosition(function(pos){
+      posizioneOrdine = {lat: pos.coords.latitude, lng: pos.coords.longitude};
+      sortBy = "distanza"; renderSortRow(); renderList(); renderFavorites();
+      var senza = venues.filter(function(v){ return !v.deleted_at && distanzaKm(v) == null; }).length;
+      toast("Ordinato per distanza" + (senza ? " · " + senza + " senza posizione in fondo" : ""));
+    }, function(err){
+      toast(err.code === err.PERMISSION_DENIED
+        ? "Permesso di posizione negato: l’ordine resta com’era"
+        : "Impossibile ottenere la posizione: l’ordine resta com’era");
+    }, {enableHighAccuracy:false, timeout:10000, maximumAge:120000});
+  }
   document.getElementById("btnSort").addEventListener("click", openSortSheet);
   document.getElementById("btnSortFav").addEventListener("click", openSortSheet);
 
   function renderList(){
+    puntiCondivisi = null;
     var filtered = venues.filter(function(v){ return matchesFilter(v) && matchesSearch(v); });
     // Prima di ogni uscita: l'elenco vuoto esce subito qui sotto, e la
     // mappa non deve restare con i segnalini di prima.
@@ -4970,7 +5219,7 @@
     elCountSub.textContent = filtered.length + (filtered.length===1 ? " palco" : " palchi");
     var sorted = filtered.slice().sort(venueSorter());
     if(sorted.length === 0){
-      var noFilters = filtroVuoto(filterStatus) && filtroVuoto(filterType) && filtroVuoto(filterCategory) && filtroVuoto(filterOwner) && !filterTagsAttivi() && !anyVenueListFilterOn() && !anyGeoFilterOn() && !filterSoloPreferiti && !filterSoloFocus && !searchText;
+      var noFilters = filtroVuoto(filterStatus) && filtroVuoto(filterType) && filtroVuoto(filterCategory) && filtroVuoto(filterOwner) && !filterTagsAttivi() && !anyVenueListFilterOn() && !anyGeoFilterOn() && !filterSoloPreferiti && !filterSoloFocus && !filterPosIncerta && !filterSenzaIndirizzo && !searchText;
       elList.innerHTML = '<div class="empty-state">'+
         (noFilters
           ? '<div class="glyph"><svg class="pick" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3c5 0 9 2.1 9 5.6 0 4.6-5.2 12.2-9 12.2S3 13.2 3 8.6C3 5.1 7 3 12 3Z"/></svg></div><h2>Nessun palco ancora</h2><p>Tocca + in alto per aggiungere il primo posto dove far suonare la band: un locale, una festa di paese, un bagno al mare — quello che è.</p>'
@@ -5127,7 +5376,7 @@
      sessanta chilometri da qui. Le coordinate saranno mute, ma sono giuste. */
   function directionsDest(v){
     if(v.address && v.city){
-      return [v.name, v.address, v.city].filter(function(x){ return x; }).join(", ");
+      return [v.name, v.address, v.locality, v.city].filter(function(x){ return x; }).join(", ");
     }
     return v.lat + "," + v.lng;
   }
@@ -5231,8 +5480,9 @@
   function mapPopupHtml(v, st){
     var righe = [];
     if(v.contact_name) righe.push('<div class="mp-row"><span class="mp-ico">👤</span><span>'+dato(v.contact_name)+'</span></div>');
-    var indirizzo = [v.address, v.city].filter(function(x){ return x; }).join(", ");
+    var indirizzo = [v.address, v.locality, v.city].filter(function(x){ return x; }).join(", ");
     if(indirizzo) righe.push('<div class="mp-row"><span class="mp-ico">📍</span><span>'+dato(indirizzo)+'</span></div>');
+    if(posizioneIncerta(v)) righe.push('<div class="mp-row" style="color:var(--orange);"><span class="mp-ico">⚠️</span><span>Posizione incerta: è il centro della città, non il locale</span></div>');
     if(v.phone) righe.push('<div class="mp-row"><span class="mp-ico">📱</span>'+
       '<a href="tel:'+esc(v.phone.replace(/\s+/g,""))+'">'+dato(v.phone)+'</a></div>');
     return '<div class="map-pin-popup">'+
@@ -5254,12 +5504,23 @@
     '</div>';
   }
   var mapSignature = null;
+  /* Gli Inattivi non stanno sulla mappa (7 ottobre 2026, Stefano): sono i
+     posti dove ci hai provato e non hai suonato, e riempivano la mappa di
+     gocce marroni intorno a quelle su cui lavori. Restano nell'elenco, e
+     sulla mappa tornano se li chiedi coi filtri (stato Inattivo spuntato)
+     o se ne cerchi uno per nome: allora compare quel segnalino solo. */
+  var mapAncheInattivo = null;
+  function sullaMappa(v){
+    if(!matchesFilter(v)) return false;
+    if(v.status !== "inattivo") return true;
+    return filterStatus.indexOf("inattivo") > -1 || String(v.id) === String(mapAncheInattivo);
+  }
   function renderMapMarkers(force){
     if(!mapMarkersLayer) return;
-    var visibili = venues.filter(function(v){ return matchesFilter(v) && v.lat != null && v.lng != null; });
+    var visibili = venues.filter(function(v){ return sullaMappa(v) && v.lat != null && v.lng != null; });
     // Se l'insieme visibile e' lo stesso di prima non si tocca niente: il
     // fit qui sotto rizoomerebbe la mappa mentre l'utente la sta guardando.
-    var firma = visibili.map(function(v){ return v.id + ":" + v.lat + "," + v.lng + ":" + v.status + ":" + typeIcon(v.type); }).join("|");
+    var firma = visibili.map(function(v){ return v.id + ":" + v.lat + "," + v.lng + ":" + v.status + ":" + typeIcon(v.type) + ":" + (v.geo_precision || ""); }).join("|");
     if(!force && firma === mapSignature) return;
     mapSignature = firma;
     mapMarkersLayer.clearLayers();
@@ -5272,7 +5533,11 @@
     var bounds = [];
     withCoords.forEach(function(v){
       var st = venueStatusInfo(v.status);
-      var marker = L.marker([v.lat, v.lng], {icon: getMapPinIcon(st.color, typeIcon(v.type))});
+      // Arancione e non il colore dello stato quando il punto e' solo il
+      // centro della citta': li' il palco non c'e', e la goccia del suo
+      // stato in mezzo alla piazza direbbe una cosa falsa.
+      var colore = posizioneIncerta(v) ? COLORE_POS_INCERTA : st.color;
+      var marker = L.marker([v.lat, v.lng], {icon: getMapPinIcon(colore, typeIcon(v.type))});
       marker.bindPopup(mapPopupHtml(v, st));
       marker.on("popupopen", function(e){
         var btn = e.popup.getElement().querySelector("[data-open-map-id]");
@@ -5395,6 +5660,10 @@
       renderMapMarkers(true);
       toast("Filtri azzerati per mostrarti " + (v.name || "il palco"));
     }
+    if(!sullaMappa(v)){
+      mapAncheInattivo = v.id;
+      renderMapMarkers(true);
+    }
     focusVenueOnMap(v);
   });
   elSearch.addEventListener("focus", renderMapSearchResults);
@@ -5451,6 +5720,7 @@
   wireClearBtn(elFavSearch, document.getElementById("favSearchClearBtn"));
 
   function renderFavorites(){
+    puntiCondivisi = null;
     var stellati = venues.filter(function(v){ return sonoPreferito(v.id) && !v.deleted_at; });
     // Il tag lo filtra matchesFilter, insieme a tipo, categoria e tutto il
     // resto: e' un filtro come gli altri e sta nello stesso posto.
@@ -7515,6 +7785,7 @@
   var elSaveIndicatorTitle = document.getElementById("detailInlineTitle");
   var fName = document.getElementById("fName"),
       fAddress = document.getElementById("fAddress"),
+      fLocality = document.getElementById("fLocality"),
       fLat = document.getElementById("fLat"),
       fLng = document.getElementById("fLng"),
       fCapacity = document.getElementById("fCapacity"),
@@ -7540,6 +7811,7 @@
       Object.keys(venuePicks).forEach(function(k){
         if(venues[i][k] !== updated[k]) delete venuePicks[k];
       });
+      aggiornaSalvaPalco();
     }
     if(i > -1) venues[i] = updated; else venues.push(updated);
     if(String(updated.id) === String(currentId)){
@@ -7577,11 +7849,22 @@
     if(norm(v[field]) === norm(value)) delete venuePicks[field];
     else venuePicks[field] = value;
     render(conBozza(v));
+    aggiornaSalvaPalco();
   }
   function schedaSporca(){ return venueDirty || Object.keys(venuePicks).length > 0; }
-  [fName, fAddress, fLat, fLng, fCapacity, fContactName, fLandline,
+  /* Salva e' grigio finche' la scheda non ha niente da salvare, e si
+     accende alla prima modifica (5 ottobre 2026): Stefano voleva capire a
+     colpo d'occhio se un palco ha ancora qualcosa in sospeso. Va chiamata
+     ovunque cambino venueDirty o venuePicks. */
+  var elBtnSaveVenue = document.getElementById("btnSave");
+  function aggiornaSalvaPalco(){
+    var sporca = schedaSporca();
+    elBtnSaveVenue.disabled = !sporca;
+    elBtnSaveVenue.classList.toggle("spento", !sporca);
+  }
+  [fName, fAddress, fLocality, fLat, fLng, fCapacity, fContactName, fLandline,
    fPhone, fEmail, fWebsite, fFacebook, fInstagram, fPlanningNote].forEach(function(el){
-    el.addEventListener("input", function(){ venueDirty = true; });
+    el.addEventListener("input", function(){ venueDirty = true; aggiornaSalvaPalco(); });
   });
   fName.addEventListener("input", function(){
     setDato(elSaveIndicatorTitle, fName.value, "Nuovo palco");
@@ -7861,6 +8144,26 @@
     var t = (valore || "").trim().toLowerCase();
     return domini.some(function(d){ return t.indexOf(d) > -1; });
   }
+  /* Una riga scorsa resta scorsa finche' qualcuno non la rimette a posto:
+     lo scorrimento e' quello nativo, e le righe fisse di una scheda (i
+     social con «Prendi la copertina») non si ridisegnano mai. Uscendo e
+     rientrando — anche in un altro palco — si ritrovava l'azione gia'
+     scoperta. Chi apre una scheda le chiude tutte, dopo averla resa visibile: su un
+     elemento nascosto scrollLeft non vale. */
+  function chiudiScorrimenti(root){
+    Array.prototype.forEach.call(root.querySelectorAll(".swipe-row, .quick-actions"), function(r){
+      r.scrollLeft = 0;
+    });
+  }
+  /* A ricerca finita (copertina o foto presa dai social, riuscita o no) la
+     riga si richiude da sola, scorrendo: l'azione e' fatta e lasciarla
+     scoperta invitava a toccarla di nuovo (7 ottobre 2026, Stefano). */
+  function richiudiRiga(btn){
+    var riga = btn && btn.closest(".swipe-row");
+    if(!riga) return;
+    if(riga.scrollTo) riga.scrollTo({left: 0, behavior: "smooth"});
+    else riga.scrollLeft = 0;
+  }
   function renderSocialSwipeActions(){
     elAzioniFacebook.hidden = !currentId || !sembraDi(fFacebook.value, ["facebook.com", "fb.com", "fb.me"]);
     elAzioniInstagram.hidden = !currentId || !sembraDi(fInstagram.value, ["instagram.com", "instagr.am"]);
@@ -7889,6 +8192,7 @@
       .then(function(){
         socialCoverBusy = false;
         btn.textContent = scritta;
+        richiudiRiga(btn);
       });
   }
   elAzioniFacebook.addEventListener("click", function(e){
@@ -7943,6 +8247,7 @@
     function scrivi(){
       fInstagram.value = url;
       venueDirty = true;
+      aggiornaSalvaPalco();
       renderSocialSwipeActions();
       toast("Link incollato · salva la scheda");
     }
@@ -7953,9 +8258,14 @@
   }
   function mostraProfiliTrovati(trovati){
     var opzioni = trovati.map(function(p){
+      // Sotto il nome quello che Google mostrerebbe: quanti follower e post
+      // (un profilo con 0 post e' quasi sempre vuoto) e la descrizione.
+      var numeri = [p.follower ? p.follower + " follower" : "", p.post ? p.post + " post" : ""].filter(Boolean).join(" · ");
+      var sub = [numeri, p.bio ? "«" + p.bio + "»" : ""].filter(Boolean).join(" — ");
       return {
         label: (p.nome ? p.nome + " · " : "") + "@" + p.username,
         dato: true,
+        sub: sub,
         thumb: p.foto || "",
         onSelect: function(){ scriviSocial(p.url); }
       };
@@ -7996,11 +8306,14 @@
     var el = document.getElementById("posizioneValue");
     if(!el || posizioneBusy) return;
     var c = v && v.lat != null && v.lat !== "" && v.lng != null && v.lng !== "";
-    el.textContent = c ? (Number(v.lat).toFixed(5) + ", " + Number(v.lng).toFixed(5)) : "—";
-    el.style.color = c ? "" : "var(--text-tertiary)";
+    var incerta = c && posizioneIncerta(v);
+    el.textContent = c ? ((incerta ? "solo centro città · " : "") + Number(v.lat).toFixed(5) + ", " + Number(v.lng).toFixed(5)) : "—";
+    el.style.color = incerta ? COLORE_POS_INCERTA : (c ? "" : "var(--text-tertiary)");
+    renderPosizioneAvanzata();
   }
   document.getElementById("rowCercaPosizione").addEventListener("click", function(){
     if(posizioneBusy || !currentId) return;
+    chiudiPosizioneAvanzata();
     var idQuando = currentId;
     var el = document.getElementById("posizioneValue");
     var riga = document.getElementById("rowCercaPosizione");
@@ -8009,10 +8322,14 @@
     el.textContent = "cerco…";
     el.style.color = "var(--text-tertiary)";
     // Nome, indirizzo e citta' sono quelli che hai davanti, non quelli
-    // salvati: la scheda e' una bozza finche' non premi Salva.
-    var prima = currentVenue();
+    // salvati: la scheda e' una bozza finche' non premi Salva. La citta'
+    // si sceglie da un foglio e sta in venuePicks (conBozza): leggendola
+    // dal palco salvato, su un palco nuovo arrivava vuota e la posizione
+    // si trovava solo dopo il primo Salva.
+    var prima = conBozza(currentVenue());
     api("POST", "/api/locations/" + idQuando + "/geocode", {
-      force: true, name: fName.value, address: fAddress.value, city: (prima && prima.city) || ""
+      force: true, name: fName.value, address: fAddress.value,
+      locality: fLocality.value, city: (prima && prima.city) || ""
     }).then(function(esito){
       posizioneBusy = false;
       var v = esito.location;
@@ -8047,6 +8364,126 @@
     }).then(function(){
       riga.classList.remove("busy");
     });
+  });
+
+  /* La ricerca avanzata (6 ottobre 2026): sta nello scorrimento della riga
+     Posizione, perche' il tocco resta la ricerca normale che tutti
+     conoscono. Prova l'indirizzo scritto in altri modi (lo fa il server,
+     geocode_avanzata) e quello che trova non lo salva: lo mette nel
+     pannellino sotto la riga, col link per guardarlo sulla mappa, e lo
+     scrive solo con Conferma — e' un'ipotesi, come la «Tangenziale» di
+     Porto Tolle diventata «Tangenziale Sud».
+
+     Le coordinate si salvano subito come con la ricerca normale; il nome
+     della strada, se lo chiedi, finisce nel campo Indirizzo e resta in
+     bozza fino a Salva come ogni altro campo. */
+  var elAzioniPosizione = document.getElementById("azioniPosizione");
+  var elPosizionePanel = document.getElementById("posizionePanel");
+  var posizioneAvanzata = null;   /* {id, lat, lng, luogo, indirizzo, correggi} */
+  function chiudiPosizioneAvanzata(){
+    if(!posizioneAvanzata) return;
+    posizioneAvanzata = null;
+    renderPosizioneAvanzata();
+  }
+  function renderPosizioneAvanzata(){
+    if(!elAzioniPosizione) return;   /* chiamata prima che questo pezzo giri */
+    var p = posizioneAvanzata && String(posizioneAvanzata.id) === String(currentId) ? posizioneAvanzata : null;
+    // Col pannellino aperto la riga non scorre, come le altre (INTERFACCIA.md).
+    elAzioniPosizione.hidden = !currentId || !!p;
+    elPosizionePanel.hidden = !p;
+    if(!p){ elPosizionePanel.innerHTML = ""; return; }
+    var mappa = "https://www.google.com/maps/search/?api=1&query=" + p.lat + "," + p.lng;
+    elPosizionePanel.innerHTML = '<div class="gig-panel esito" style="border-left-color:var(--tint);">'+
+      '<div class="esito-domanda">Usare questo punto come posizione del palco? Guardalo sulla mappa prima di confermare: la ricerca avanzata indovina la strada, non la porta del locale.</div>'+
+      '<div class="field-row stacked"><label>Trovato</label>'+
+        '<div>'+esc(p.luogo || (p.lat.toFixed(5) + ", " + p.lng.toFixed(5)))+'</div>'+
+        '<a class="link-action" href="'+esc(mappa)+'" target="_blank" rel="noopener">Vedi sulla mappa</a></div>'+
+      (p.indirizzo
+        ? '<div class="field-row"><label for="posCorreggi" style="flex:1;">Scrivi anche l’indirizzo come «'+esc(p.indirizzo)+'»</label>'+
+            '<label class="ios-switch"><input type="checkbox" id="posCorreggi"'+(p.correggi ? ' checked' : '')+'>'+
+            '<span class="ios-switch-track"><span class="ios-switch-thumb"></span></span></label></div>'
+        : '')+
+      '<div class="add-note-row" style="justify-content:flex-end;gap:18px;">'+
+        '<button type="button" id="btnPosAnnulla" style="color:var(--text-secondary);">Annulla</button>'+
+        '<button type="button" id="btnPosConferma">Conferma</button>'+
+      '</div>'+
+    '</div>';
+  }
+  elAzioniPosizione.addEventListener("click", function(e){
+    var b = e.target.closest("button");
+    if(!b || posizioneBusy || !currentId) return;
+    var idQuando = currentId;
+    var el = document.getElementById("posizioneValue");
+    var riga = document.getElementById("rowCercaPosizione");
+    // La riga torna chiusa: e' li' che si legge che sta cercando.
+    var scorre = elAzioniPosizione.parentNode;
+    if(scorre) scorre.scrollLeft = 0;
+    posizioneBusy = true;
+    riga.classList.add("busy");
+    el.textContent = "ricerca avanzata…";
+    el.style.color = "var(--text-tertiary)";
+    var prima = conBozza(currentVenue());
+    api("POST", "/api/locations/" + idQuando + "/geocode/avanzata", {
+      name: fName.value, address: fAddress.value,
+      locality: fLocality.value, city: (prima && prima.city) || ""
+    }).then(function(esito){
+      posizioneBusy = false;
+      if(esito.esito === "trovato"){
+        posizioneAvanzata = {id: idQuando, lat: esito.lat, lng: esito.lng,
+          luogo: esito.luogo, indirizzo: esito.indirizzo, correggi: true};
+      } else if(esito.esito === "senza_indirizzo"){
+        toast("Serve almeno la città per cercare");
+      } else if(esito.esito === "senza_via"){
+        toast("La ricerca avanzata lavora sull’indirizzo: scrivi almeno la via");
+      } else {
+        toast("Neanche la ricerca avanzata la trova: la via forse non è sulla mappa");
+      }
+    }).catch(function(err){
+      posizioneBusy = false;
+      toast(err.message || "La mappa non risponde");
+    }).then(function(){
+      riga.classList.remove("busy");
+      var cv = currentVenue();
+      if(cv && String(currentId) === String(idQuando)) renderPosizioneRow(cv);
+    });
+  });
+  elPosizionePanel.addEventListener("change", function(e){
+    if(e.target.id === "posCorreggi" && posizioneAvanzata) posizioneAvanzata.correggi = e.target.checked;
+  });
+  elPosizionePanel.addEventListener("click", function(e){
+    var b = e.target.closest("button");
+    if(!b || !posizioneAvanzata) return;
+    if(b.id === "btnPosAnnulla"){ chiudiPosizioneAvanzata(); return; }
+    if(b.id !== "btnPosConferma" || posizioneBusy) return;
+    var p = posizioneAvanzata;
+    posizioneBusy = true;
+    b.disabled = true;
+    api("POST", "/api/locations/" + p.id + "/geocode/conferma", {lat: p.lat, lng: p.lng})
+      .then(function(esito){
+        posizioneBusy = false;
+        posizioneAvanzata = null;
+        var v = esito.location;
+        if(v){
+          applyUpdatedVenue(v);
+          if(String(currentId) === String(p.id)){
+            fLat.value = v.lat != null ? v.lat : "";
+            fLng.value = v.lng != null ? v.lng : "";
+            if(p.indirizzo && p.correggi){
+              // In bozza come se l'avessi scritto tu: lo salva Salva.
+              fAddress.value = p.indirizzo;
+              fAddress.dispatchEvent(new Event("input"));
+            }
+            renderPosizioneRow(v);
+          }
+          renderAll();
+        }
+        toast(p.indirizzo && p.correggi ? "Posizione salvata · indirizzo da salvare" : "Posizione salvata");
+      })
+      .catch(function(err){
+        posizioneBusy = false;
+        b.disabled = false;
+        toast(err.message || "Non sono riuscito a salvarla");
+      });
   });
 
   /* I glifi dei tre social, in linea: niente da scaricare, e vanno anche
@@ -9864,6 +10301,7 @@
     VENUE_LISTS.forEach(function(L){ renderVenueListPickerRow(L, v); });
     renderCityRow(v);
     fAddress.value = v.address || "";
+    fLocality.value = v.locality || "";
     fLat.value = v.lat != null ? v.lat : "";
     fLng.value = v.lng != null ? v.lng : "";
     renderPosizioneRow(v);
@@ -9880,6 +10318,7 @@
     fPlanningNote.value = v.planning_note || "";
     setDato(elSaveIndicatorTitle, v.name, "Nuovo palco");
     venueDirty = false;
+    aggiornaSalvaPalco();
     renderPhotosStrip(v);
     renderQuickActions(v);
     renderSocialSwipeActions();
@@ -10025,6 +10464,7 @@
     return {
       name: fName.value,
       address: fAddress.value,
+      locality: fLocality.value,
       lat: fLat.value,
       lng: fLng.value,
       capacity: fCapacity.value ? Number(fCapacity.value) : "",
@@ -10048,9 +10488,34 @@
   }
   document.getElementById("btnSave").addEventListener("click", function(){
     if(!currentId) return;
+    /* Salva resta sulla scheda (5 ottobre 2026): prima chiudeva e tornava
+       all'elenco, ma di solito dopo il salvataggio c'e' ancora da fare
+       qualcosa li' — cercare la posizione, prendere la copertina, segnare
+       un'attivita'. Per uscire c'e' Indietro, che a scheda pulita non
+       chiede niente. Si ridisegnano solo le righe che mostrano il dato
+       salvato: fillVenueForm butterebbe via anche la nota che stai
+       scrivendo, che col Salva della scheda non c'entra. */
     withButtonBusy(this, saveVenueNow).then(function(){
+      // withButtonBusy riaccende il pulsante: a scheda salvata torna grigio.
+      aggiornaSalvaPalco();
       toast("Palco salvato");
-      closeDetail();
+      var v = currentVenue();
+      if(v){
+        renderTypeRow(v);
+        renderCategoryRow(v);
+        VENUE_LISTS.forEach(function(L){ renderVenueListPickerRow(L, v); });
+        renderCityRow(v);
+        renderPosizioneRow(v);
+        renderGenreRow(v);
+        renderRecontactRows(v);
+        renderStatusRow(v);
+        renderArtDirectorRow(v);
+        renderOwnerRow(v);
+        renderQuickActions(v);
+        renderSocialSwipeActions();
+        setDato(elSaveIndicatorTitle, v.name, "Nuovo palco");
+      }
+      renderAll();
     }).catch(function(err){ toast(err.message); });
   });
 
@@ -10058,6 +10523,7 @@
     currentId = id;
     var v = currentVenue();
     if(!v) return;
+    posizioneAvanzata = null;
     closeGigDraft();
     closeNewGig();
     closeTaskDraft();
@@ -10065,6 +10531,7 @@
     closeNewTask();
     fillVenueForm(v);
     elDetail.hidden = false;
+    chiudiScorrimenti(elDetail);
     requestAnimationFrame(function(){ elDetail.classList.add("in"); });
     if(!v.name){ setTimeout(function(){ fName.focus(); }, 260); }
   }
@@ -10324,6 +10791,7 @@
         .then(function(){
           adFacePresa = false;
           btn.textContent = scritta;
+          richiudiRiga(btn);
         });
     });
   }
@@ -10456,6 +10924,7 @@
     renderAdQuickActions(ad);
     renderAdVenues(ad);
     elAdDetail.hidden = false;
+    chiudiScorrimenti(elAdDetail);
     requestAnimationFrame(function(){ elAdDetail.classList.add("in"); });
     if(!ad.name){ setTimeout(function(){ adName.focus(); }, 260); }
   }
@@ -13065,6 +13534,141 @@
       }).catch(function(err){ toast(err.message); });
     });
   });
+  /* ---------------- registro (admin) ----------------
+     Il registro del server letto dal telefono: un giorno alla volta, dalla
+     riga piu' recente, con un filtro per fatto e una ricerca. Il server
+     manda le righe gia' scomposte (fatto, campi, traceback) e i nomi delle
+     persone che compaiono. */
+  var REG_FATTI = {
+    registrazione: "Registrazione", accesso: "Accesso con Google", rientro: "Rientro",
+    uscita: "Uscita", band_creata: "Band creata", band_eliminata: "Band eliminata",
+    invito_accettato: "Invito accettato", componente_rimosso: "Componente rimosso",
+    uscito_dalla_band: "Uscito dalla band", utente_eliminato: "Utente eliminato",
+    palchi_zona: "Palchi della zona", segnalazione: "Segnalazione",
+    admin_telegram: "Admin · Telegram", admin_promemoria: "Admin · Avvisi dei compiti",
+    admin_palchi_zona: "Admin · Palchi della zona", errore: "Errore", avvio: "Avvio del server",
+    visita: "Visita", verso_google: "Verso Google"
+  };
+  // Le pagine di "visita": da dove si e' arrivati fin li' senza sessione.
+  var REG_PAGINE = {landing: "landing", accesso: "pagina di accesso",
+    google_da_browser_interno: "fermato prima di Google"};
+  var REG_ESITI = {caricati: "caricati", rifiutati: "rifiutati", nessuno_in_zona: "nessuno in zona"};
+  var regDati = null, regFile = null, regFatto = "", regAperte = {};
+  var elRegLista = document.getElementById("regLista");
+  var elRegCerca = document.getElementById("regCerca");
+  function regEtichetta(fatto){ return REG_FATTI[fatto] || fatto.replace(/_/g, " "); }
+  function regNome(email){
+    if(!email) return "";
+    return (regDati && regDati.names[email]) || email;
+  }
+  function regGiornoLabel(f){
+    if(!f.date) return "Oggi";
+    return fmtDateShort(f.date);
+  }
+  /* La seconda riga: chi e il dato che conta per quel fatto. */
+  function regRiassunto(r){
+    var c = r.fields, parti = [];
+    if(c.email) parti.push(regNome(c.email));
+    if(c.utente) parti.push("→ " + regNome(c.utente));
+    if(r.event === "palchi_zona"){
+      parti.push((REG_ESITI[c.esito] || c.esito || "") + (c.caricati ? " " + c.caricati + " di " + c.proposti : ""));
+    } else if(r.event === "rientro"){
+      if(c.assente_da) parti.push("via da " + c.assente_da.replace(/ fa$/, ""));
+    } else if(r.event === "errore"){
+      if(c.richiesta) parti.push(c.richiesta);
+    } else if(r.event === "visita" || r.event === "verso_google"){
+      if(c.pagina) parti.push(REG_PAGINE[c.pagina] || c.pagina);
+      if(c.browser) parti.push("browser di " + c.browser);
+      if(c.sistema) parti.push(c.sistema);
+      if(c.da) parti.push("da " + c.da);
+    } else if(r.event === "avvio"){
+      if(c.build) parti.push("build " + c.build);
+    }
+    if(c.band) parti.push(c.band);
+    return parti.filter(Boolean).join(" · ");
+  }
+  function regCorrisponde(r, q){
+    if(regFatto && r.event !== regFatto) return false;
+    if(!q) return true;
+    var testo = [regEtichetta(r.event), r.detail].concat(
+      Object.keys(r.fields).map(function(k){ return r.fields[k]; }),
+      [regNome(r.fields.email), regNome(r.fields.utente)]
+    ).join(" ").toLowerCase();
+    return testo.indexOf(q) > -1;
+  }
+  function renderRegistro(){
+    if(!regDati){ elRegLista.innerHTML = ""; return; }
+    var f = regDati.files.filter(function(x){ return x.name === regDati.file; })[0];
+    document.getElementById("regGiornoValue").textContent = f ? regGiornoLabel(f) : "—";
+    document.getElementById("regFattoValue").textContent = regFatto ? regEtichetta(regFatto) : "Tutti";
+    var q = elRegCerca.value.trim().toLowerCase();
+    var righe = regDati.rows.filter(function(r){ return regCorrisponde(r, q); });
+    document.getElementById("regHeader").textContent =
+      (righe.length === 1 ? "1 RIGA" : righe.length + " RIGHE") + (regDati.truncated ? " (LE PIÙ RECENTI)" : "");
+    if(!righe.length){
+      elRegLista.innerHTML = '<div class="field-row" style="color:var(--text-secondary);font-size:14px;">' +
+        (regDati.files.length ? "Nessuna riga." : "Il registro è ancora vuoto.") + '</div>';
+      return;
+    }
+    elRegLista.innerHTML = righe.map(function(r){
+      var chiave = r.date + " " + r.time + " " + r.event + " " + (r.fields.email || "");
+      var campi = Object.keys(r.fields).map(function(k){
+        var v = r.fields[k];
+        if((k === "email" || k === "utente") && regDati.names[v]) v = regDati.names[v] + " (" + v + ")";
+        return '<div><b>'+esc(k.replace(/_/g, " "))+'</b> '+dato(v)+'</div>';
+      }).join("");
+      return '<div class="row'+(r.event === "errore" ? ' reg-errore' : '')+(regAperte[chiave] ? ' reg-aperta' : '')+'" data-reg="'+esc(chiave)+'">'+
+        '<div class="row-main"><div class="row-title">'+esc(regEtichetta(r.event))+'</div>'+
+        '<div class="row-sub">'+dato(regRiassunto(r))+'</div>'+
+        '<div class="reg-dettagli">'+campi+(r.detail ? '<pre class="reg-traccia">'+esc(r.detail)+'</pre>' : '')+'</div>'+
+        '</div><span class="reg-ora">'+esc(r.time.slice(0, 5))+'</span></div>';
+    }).join("");
+  }
+  function loadRegistro(){
+    return api("GET", "/api/admin/registro" + (regFile ? "?file=" + encodeURIComponent(regFile) : "")).then(function(d){
+      regDati = d;
+      regFile = d.file;
+      renderRegistro();
+    }).catch(function(err){ toast(err.message); });
+  }
+  elRegLista.addEventListener("click", function(e){
+    var riga = e.target.closest("[data-reg]");
+    if(!riga) return;
+    var k = riga.getAttribute("data-reg");
+    regAperte[k] = !regAperte[k];
+    riga.classList.toggle("reg-aperta", !!regAperte[k]);
+  });
+  elRegCerca.addEventListener("input", renderRegistro);
+  document.getElementById("rowRegGiorno").addEventListener("click", function(){
+    if(!regDati || !regDati.files.length) return;
+    openSheet({title: "Quale giorno", options: regDati.files.map(function(f){
+      return {label: regGiornoLabel(f), checkmark: f.name === regDati.file, onSelect: function(){
+        regFile = f.name; regAperte = {}; loadRegistro();
+      }};
+    })});
+  });
+  document.getElementById("rowRegFatto").addEventListener("click", function(){
+    if(!regDati) return;
+    var presenti = {};
+    regDati.rows.forEach(function(r){ presenti[r.event] = (presenti[r.event] || 0) + 1; });
+    var opts = [{label: "Tutti", checkmark: !regFatto, onSelect: function(){ regFatto = ""; renderRegistro(); }}];
+    Object.keys(presenti).sort(function(a, b){ return regEtichetta(a).localeCompare(regEtichetta(b), "it"); }).forEach(function(k){
+      opts.push({label: regEtichetta(k) + " (" + presenti[k] + ")", checkmark: regFatto === k, onSelect: function(){
+        regFatto = k; renderRegistro();
+      }});
+    });
+    openSheet({title: "Quale fatto", options: opts});
+  });
+  function openAdminRegistroScreen(){
+    regFile = null; regFatto = ""; regAperte = {}; elRegCerca.value = "";
+    renderRegistro();
+    apriPushed("adminRegistroScreen");
+    loadRegistro();
+  }
+  function closeAdminRegistroScreen(){ chiudiPushed("adminRegistroScreen"); }
+  document.getElementById("rowAdminRegistro").addEventListener("click", openAdminRegistroScreen);
+  document.getElementById("btnAdminRegistroBack").addEventListener("click", closeAdminRegistroScreen);
+
   function openAdminBandsScreen(){
     renderAdminBands();
     apriPushed("adminBandsScreen");
@@ -13372,8 +13976,46 @@
     }).catch(function(err){ toast(err.message); });
   });
 
+  /* ---- palchi della zona per le band nuove ----
+     Raggio e massimo della proposta fatta a chi crea la sua prima band.
+     Il massimo 0 vuol dire tutti. */
+  var partenzaImp = null;
+  function massimoTesto(n){ return n ? String(n) : "Tutti"; }
+  function renderPartenzaImp(st){
+    partenzaImp = st;
+    if(!st) return;
+    document.getElementById("partenzaRaggioValue").textContent = st.radius_km + " km";
+    document.getElementById("partenzaMassimoValue").textContent = massimoTesto(st.max);
+  }
+  function partenzaImpRefresh(){
+    return api("GET", "/api/admin/partenza").then(renderPartenzaImp).catch(function(){});
+  }
+  function salvaPartenzaImp(campi, messaggio){
+    api("PUT", "/api/admin/partenza", campi).then(function(st){
+      renderPartenzaImp(st);
+      toast(messaggio);
+    }).catch(function(err){ toast(err.message); });
+  }
+  document.getElementById("rowPartenzaRaggio").addEventListener("click", function(){
+    if(!partenzaImp) return;
+    openSheet({title: "Entro quanti km dalla città della band", options: partenzaImp.radius_choices.map(function(km){
+      return {label: km + " km", checkmark: km === partenzaImp.radius_km, onSelect: function(){
+        salvaPartenzaImp({radius_km: km}, "Raggio: " + km + " km");
+      }};
+    })});
+  });
+  document.getElementById("rowPartenzaMassimo").addEventListener("click", function(){
+    if(!partenzaImp) return;
+    openSheet({title: "Quanti palchi proporre al massimo", options: partenzaImp.max_choices.map(function(n){
+      return {label: massimoTesto(n), checkmark: n === partenzaImp.max, onSelect: function(){
+        salvaPartenzaImp({max: n}, "Massimo: " + massimoTesto(n).toLowerCase());
+      }};
+    })});
+  });
+
   function openAdminScreen(){
     elAdminScreen.hidden = false;
+    partenzaImpRefresh();
     renderGeoSection();
     pushRefresh();
     telegramRefresh();
@@ -13405,12 +14047,37 @@
     document.getElementById("geoTodo").textContent = mancano;
     document.getElementById("geoDone").textContent = fatti;
     document.getElementById("rowGeoStart").classList.toggle("busy", mancano === 0);
+    var incerti = venuesPosizioneIncerta().length;
+    document.getElementById("geoIncerti").textContent = incerti;
+    document.getElementById("rowGeoIncerti").classList.toggle("busy", incerti === 0);
   }
   document.getElementById("rowGeoStop").addEventListener("click", function(){ geoStop = true; });
+  /* I palchi col segnalino arancione: hanno un punto, ma e' il centro della
+     citta'. Quelli senza punto no — per loro c'e' l'altra riga. */
+  function venuesPosizioneIncerta(){
+    return venues.filter(function(v){
+      return !v.deleted_at && v.lat != null && v.lat !== "" && posizioneIncerta(v);
+    });
+  }
   document.getElementById("rowGeoStart").addEventListener("click", function(){
     if(geoRunning) return;
     var coda = venuesSenzaPosizione();
     if(!coda.length){ toast("Sono tutti sulla mappa"); return; }
+    giroPosizioni(coda, false);
+  });
+  document.getElementById("rowGeoIncerti").addEventListener("click", function(){
+    if(geoRunning) return;
+    var coda = venuesPosizioneIncerta();
+    if(!coda.length){ toast("Nessuna posizione incerta"); return; }
+    confirmDestructive("Rifare la ricerca della posizione per " + coda.length +
+      (coda.length === 1 ? " palco" : " palchi") + " col segnalino arancione? Ci vuole circa " +
+      Math.max(1, Math.round(coda.length * 4 / 60)) + " minuti; si può fermare quando vuoi.", function(){
+      giroPosizioni(coda, true);
+    });
+  });
+  /* Lo stesso giro per le due righe: le mancanti si cercano e basta, le
+     incerte con force, perche' un punto ce l'hanno gia'. */
+  function giroPosizioni(coda, ricalcolo){
     geoRunning = true;
     geoStop = false;
     var esiti = {precisi:0, citta:0, non_trovati:[], errori:[]};
@@ -13428,7 +14095,7 @@
       if(geoStop || i >= coda.length) return fine();
       var v = coda[i];
       avanzamento(v);
-      api("POST", "/api/locations/" + v.id + "/geocode", {})
+      api("POST", "/api/locations/" + v.id + "/geocode", ricalcolo ? {force: true} : {})
         .then(function(esito){
           if(esito.location) applyUpdatedVenue(esito.location);
           if(esito.esito === "fatto"){
@@ -13461,7 +14128,7 @@
         '<div class="section-header">'+(interrotto ? "FERMATO DOPO "+fatti+" DI "+coda.length : "FATTO")+'</div>'+
         '<div class="grouped-list">'+
           '<div class="bulk-esito"><b>'+esiti.precisi+'</b><span>messi sul punto giusto</span></div>'+
-          '<div class="bulk-esito"><b>'+esiti.citta+'</b><span>messi al centro della loro città</span></div>'+
+          '<div class="bulk-esito"><b>'+esiti.citta+'</b><span>'+(ricalcolo ? "ancora al centro della loro città" : "messi al centro della loro città")+'</span></div>'+
           (esiti.non_trovati.length ? '<div class="bulk-esito"><b>'+esiti.non_trovati.length+'</b><span>non trovati</span></div>' : '')+
           (esiti.errori.length ? '<div class="bulk-esito"><b>'+esiti.errori.length+'</b><span>non riusciti per altri motivi</span></div>' : '')+
         '</div>'+
@@ -13470,7 +14137,7 @@
       document.getElementById("geoReport").hidden = false;
     }
     passo(0);
-  });
+  }
   function closeAdminScreen(){
     elAdminScreen.classList.remove("in");
     setTimeout(function(){ elAdminScreen.hidden = true; }, 320);
@@ -13833,6 +14500,29 @@
     elProfileSetupScreen.hidden = false;
     requestAnimationFrame(function(){ elProfileSetupScreen.classList.add("in"); });
   }
+  /* Il passaggio fra le pagine del benvenuto (7 ottobre 2026). Chiudere una
+     pagina e aprire l'altra insieme faceva scorrere via la prima mentre la
+     seconda entrava, e nel mezzo si vedeva la Home. Adesso la pagina che
+     resta sotto compare o sparisce senza animazione, coperta da quella che
+     si muove: avanti la nuova entra sopra, indietro la vecchia scorre via
+     e sotto la precedente c'e' gia'. */
+  function mostraSubito(el){
+    el.style.transition = "none";
+    el.hidden = false;
+    el.classList.add("in");
+    void el.offsetWidth;
+    el.style.transition = "";
+  }
+  function nascondiSubito(el){
+    el.style.transition = "none";
+    el.classList.remove("in");
+    el.hidden = true;
+    void el.offsetWidth;
+    el.style.transition = "";
+  }
+  function nascondiDopoIlPassaggio(el){
+    setTimeout(function(){ nascondiSubito(el); }, 340);
+  }
   function closeProfileSetup(){
     elProfileSetupScreen.classList.remove("in");
     setTimeout(function(){ elProfileSetupScreen.hidden = true; }, 320);
@@ -13847,12 +14537,14 @@
       });
     }).then(function(updated){
       me = updated;
-      closeProfileSetup();
       renderSettingsProfile();
       syncMyMemberRow();
       // Chi arriva da un invito una band ce l'ha gia'. Chi si e'
       // registrato da solo no, e senza non c'e' niente da mostrargli.
-      if(me.needs_workspace) openWizard();
+      if(me.needs_workspace){
+        openWizard();
+        nascondiDopoIlPassaggio(elProfileSetupScreen);
+      } else closeProfileSetup();
     }).catch(function(err){ toast(err.message); });
   });
 
@@ -13885,17 +14577,52 @@
       updateWizardContinueState();
     });
   });
+  var wizardInCorso = false;
   btnWizardContinue.addEventListener("click", function(){
-    if(btnWizardContinue.style.pointerEvents === "none") return;
-    api("PUT", "/api/me", {artist_name: wzArtistName.value.trim(), genre: wizardGenres.join(", "), city: wizardCity}).then(function(updated){
-      me = updated;
-      closeWizard();
-      renderSettingsProfile();
-      // Il wizard ha appena creato la prima band: adesso ci sono dei dati da
-      // caricare, e prima non ce n'erano.
-      return loadAllData();
-    }).catch(function(err){ toast(err.message); });
+    if(btnWizardContinue.style.pointerEvents === "none" || wizardInCorso) return;
+    wizardInCorso = true;
+    // Il wizard resta davanti finche' non si sa cosa viene dopo: la
+    // proposta dei palchi della zona, che gli entra sopra, o la Home.
+    // Chiuderlo subito mostrava la Home vuota per il tempo di chiedere i
+    // palchi, e poi la proposta le passava sopra.
+    withButtonBusy(this, function(){
+      return api("PUT", "/api/me", {artist_name: wzArtistName.value.trim(), genre: wizardGenres.join(", "), city: wizardCity}).then(function(updated){
+        me = updated;
+        renderSettingsProfile();
+        // Il wizard ha appena creato la prima band: adesso ci sono dei dati da
+        // caricare, e prima non ce n'erano.
+        // Al massimo 4 secondi: se la mappa e' lenta il wizard si chiude lo
+        // stesso, e la proposta entra sopra la Home quando arriva.
+        return loadAllData().then(function(){
+          return Promise.race([
+            offriPalchiDellaZona(),
+            new Promise(function(fatto){ setTimeout(function(){ fatto(false); }, 4000); })
+          ]);
+        });
+      });
+    }).then(function(proposta){
+      if(proposta) nascondiDopoIlPassaggio(elWizardScreen);
+      else closeWizard();
+    }).catch(function(err){ toast(err.message); }).then(function(){ wizardInCorso = false; });
   });
+  /* Dalla band si torna al profilo (7 ottobre 2026: Stefano non riusciva a
+     rivedere la prima pagina). Il profilo e' gia' salvato e si riapre con i
+     suoi dati; quello scritto qui resta, e Continua del profilo riporta qui
+     perche' la band manca ancora. */
+  function wizardTornaAlProfilo(){
+    if(elWizardScreen.hidden) return;
+    openProfileSetup();
+    mostraSubito(elProfileSetupScreen);
+    // Il profilo prende il livello sopra le schermate aperte (lo assegna
+    // l'osservatore degli z-index): qui deve stare sotto, perche' e' il
+    // wizard a scorrere via e a scoprirlo.
+    queueMicrotask(function(){
+      elProfileSetupScreen.style.zIndex = (parseInt(elWizardScreen.style.zIndex, 10) || 41) - 1;
+    });
+    closeWizard();
+  }
+  document.getElementById("btnWizardBack").addEventListener("click", wizardTornaAlProfilo);
+  addEdgeSwipeBack(elWizardScreen, wizardTornaAlProfilo);
   function openWizard(){
     elWizardScreen.hidden = false;
     requestAnimationFrame(function(){ elWizardScreen.classList.add("in"); });
@@ -13904,6 +14631,104 @@
     elWizardScreen.classList.remove("in");
     setTimeout(function(){ elWizardScreen.hidden = true; }, 320);
   }
+
+  /* ---------------- palchi della zona ----------------
+     Una volta sola, a chi ha appena creato la sua prima band: i palchi che
+     le altre band hanno gia' nella sua zona, da caricare con un tocco. Il
+     server decide se la domanda va fatta (me.starter_pending) e cosa
+     proporre; se in zona non c'e' niente la domanda non compare proprio.
+     Chi chiude l'app senza rispondere se la ritrova alla prossima
+     apertura: una risposta, si' o no, la chiude per sempre. */
+  var elPartenzaScreen = document.getElementById("partenzaScreen");
+  var elPartenzaLista = document.getElementById("partenzaLista");
+  var partenzaVenues = [];
+  var partenzaScelti = {};
+  var partenzaInCorso = false;
+  function offriPalchiDellaZona(){
+    if(!me || !me.starter_pending) return Promise.resolve(false);
+    return api("GET", "/api/partenza").then(function(p){
+      if(!p.pending || !p.venues.length) return false;
+      partenzaVenues = p.venues;
+      partenzaScelti = {};
+      p.venues.forEach(function(v){ partenzaScelti[v.id] = true; });
+      var citta = me.active_workspace && me.active_workspace.city ? me.active_workspace.city.replace(/\s*\(.*\)$/, "") : "";
+      var dove = "entro " + p.radius_km + " km" + (citta ? " da " + citta : "");
+      var quanti = p.total === 1 ? "c’è 1 palco" : "ci sono " + p.total + " palchi";
+      var testo = "Nella tua zona (" + dove + ") " + quanti + " che altre band di MioPalco hanno già in rubrica. ";
+      testo += p.total > p.venues.length
+        ? "Eccone " + p.venues.length + " da cui partire: vuoi caricarli?"
+        : (p.total === 1 ? "Vuoi caricarlo?" : "Vuoi caricarli?");
+      document.getElementById("partenzaTesto").textContent = testo;
+      document.getElementById("partenzaTitolo").textContent = p.total === 1 ? "C’è un palco nella tua zona" : "Ci sono palchi nella tua zona";
+      renderPartenza();
+      elPartenzaScreen.hidden = false;
+      requestAnimationFrame(function(){ elPartenzaScreen.classList.add("in"); });
+      return true;
+    }).catch(function(){ /* la domanda resta in sospeso: si riprova alla prossima apertura */ return false; });
+  }
+  function partenzaQuanti(){
+    return partenzaVenues.filter(function(v){ return partenzaScelti[v.id]; }).length;
+  }
+  function renderPartenza(){
+    var tutti = partenzaQuanti() === partenzaVenues.length;
+    var righe = partenzaVenues.length > 1
+      ? '<div class="row" data-partenza-tutti="1"><div class="row-main"><div class="row-title" style="color:var(--tint);font-weight:400;">'+
+        (tutti ? "Togli tutti" : "Scegli tutti")+'</div></div></div>'
+      : "";
+    righe += partenzaVenues.map(function(v){
+      var sub = [];
+      if(v.type) sub.push('<span class="type-tag">'+dato(v.type)+'</span>');
+      if(v.city) sub.push(dato(v.city.replace(/\s*\(.*\)$/, "")));
+      return '<div class="row" data-partenza-id="'+v.id+'">'+
+        '<img class="row-cover" src="'+esc(v.photo)+'" loading="lazy" alt="">'+
+        '<div class="row-main"><div class="row-title">'+dato(v.name)+'</div>'+
+        '<div class="row-sub">'+sub.join(" · ")+'</div></div>'+
+        '<span class="partenza-km">'+esc(String(v.km).replace(".", ","))+' km</span>'+
+        '<span class="partenza-check'+(partenzaScelti[v.id] ? ' on' : '')+'"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 12.5 10 17.5 19 7.5"/></svg></span>'+
+        '</div>';
+    }).join("");
+    elPartenzaLista.innerHTML = righe;
+    var n = partenzaQuanti();
+    document.getElementById("partenzaHeader").textContent = n + " DI " + partenzaVenues.length + " SCELTI";
+    var btn = document.getElementById("btnPartenzaCarica");
+    document.getElementById("partenzaCaricaLabel").textContent = n === 1 ? "Carica 1 palco" : "Carica " + n + " palchi";
+    btn.style.opacity = n ? "1" : ".4";
+    btn.style.pointerEvents = n ? "auto" : "none";
+  }
+  elPartenzaLista.addEventListener("click", function(e){
+    var riga = e.target.closest(".row");
+    if(!riga) return;
+    if(riga.hasAttribute("data-partenza-tutti")){
+      var accendi = partenzaQuanti() !== partenzaVenues.length;
+      partenzaVenues.forEach(function(v){ partenzaScelti[v.id] = accendi; });
+    } else {
+      var id = riga.getAttribute("data-partenza-id");
+      partenzaScelti[id] = !partenzaScelti[id];
+    }
+    renderPartenza();
+  });
+  function chiudiPartenza(){
+    elPartenzaScreen.classList.remove("in");
+    setTimeout(function(){ elPartenzaScreen.hidden = true; }, 320);
+  }
+  function rispondiPartenza(ids){
+    if(partenzaInCorso) return;
+    partenzaInCorso = true;
+    api("POST", "/api/partenza", {ids: ids}).then(function(r){
+      me.starter_pending = false;
+      chiudiPartenza();
+      if(r.loaded){
+        toast(r.loaded === 1 ? "1 palco caricato" : r.loaded + " palchi caricati");
+        // Un tipo che la band non aveva arriva insieme ai palchi.
+        return Promise.all([loadVenues(), loadVenueTypes()]);
+      }
+    }).catch(function(err){ toast(err.message); }).then(function(){ partenzaInCorso = false; });
+  }
+  document.getElementById("btnPartenzaCarica").addEventListener("click", function(){
+    var ids = partenzaVenues.filter(function(v){ return partenzaScelti[v.id]; }).map(function(v){ return v.id; });
+    if(ids.length) rispondiPartenza(ids);
+  });
+  document.getElementById("btnPartenzaNo").addEventListener("click", function(){ rispondiPartenza([]); });
 
   function loadMe(){
     return api("GET", "/api/me").then(function(data){
@@ -14152,6 +14977,7 @@
   });
 
   /* ---------------- swipe da bordo sinistro per tornare indietro ---------------- */
+  var indietroDaScorrimento = 0;
   function addEdgeSwipeBack(screenEl, closeFn){
     var startX = 0, startY = 0, tracking = false;
     var EDGE = 24, THRESHOLD = 70;
@@ -14166,9 +14992,52 @@
       var t = e.changedTouches[0];
       var dx = t.clientX - startX;
       var dy = Math.abs(t.clientY - startY);
-      if(dx > THRESHOLD && dx > dy * 1.5) closeFn();
+      if(dx > THRESHOLD && dx > dy * 1.5){ indietroDaScorrimento = Date.now(); closeFn(); }
     }, {passive:true});
   }
+
+  /* ---------------- l'Indietro del telefono ----------------
+     Su Android lo scorrimento dal bordo e il tasto Indietro sono del
+     sistema: non arrivano a addEdgeSwipeBack ma alla cronologia, e
+     siccome l'app non ci scriveva niente il primo Indietro la chiudeva,
+     da qualunque schermata (7 ottobre 2026, scoperto dal wizard). Adesso
+     c'e' sempre una voce in piu' nella cronologia: Indietro la consuma,
+     e qui si fa quello che farebbe il pulsante in alto a sinistra della
+     schermata in cima — lo si preme proprio, cosi' valgono le sue regole
+     ("Uscire senza salvare?" compreso). Un foglio aperto si chiude per
+     primo. Con niente da chiudere, Indietro esce dall'app come sempre. */
+  function schermataInCima(){
+    var aperte = Array.prototype.filter.call(
+      document.querySelectorAll("section.screen:not(.tab-screen)"),
+      function(el){ return !el.hidden && (!el.classList.contains("pushed") || el.classList.contains("in")); }
+    );
+    var cima = null, zCima = -Infinity;
+    aperte.forEach(function(el){
+      var z = parseInt(getComputedStyle(el).zIndex, 10) || 0;
+      if(z >= zCima){ cima = el; zCima = z; }
+    });
+    return cima;
+  }
+  function indietroDelTelefono(){
+    if(elSheet.classList.contains("show")){ closeSheet(); return true; }
+    var cima = schermataInCima();
+    if(!cima) return false;
+    var btn = cima.querySelector(".navbar-row > button.nav-btn");
+    if(!btn || btn.hidden || btn.offsetParent === null) return false;
+    btn.click();
+    return true;
+  }
+  function armaIndietro(){
+    try { history.pushState({miopalco: 1}, ""); } catch(e){}
+  }
+  if(!(history.state && history.state.miopalco)) armaIndietro();
+  window.addEventListener("popstate", function(){
+    // Su iPhone lo scorrimento dal bordo lo prende gia' addEdgeSwipeBack:
+    // se Safari lo passa anche alla cronologia, la schermata e' gia' chiusa.
+    if(Date.now() - indietroDaScorrimento < 700){ armaIndietro(); return; }
+    if(indietroDelTelefono()) armaIndietro();
+    else history.back();
+  });
   addEdgeSwipeBack(elDetail, closeDetail);
   addEdgeSwipeBack(elAdDetail, closeAdDetail);
   addEdgeSwipeBack(elAdScreen, closeAdScreen);
@@ -14185,6 +15054,7 @@
   addEdgeSwipeBack(document.getElementById("adminReportScreen"), chiudiSegnalazione);
   addEdgeSwipeBack(elAdminUsersScreen, closeAdminUsersScreen);
   addEdgeSwipeBack(document.getElementById("adminBandsScreen"), closeAdminBandsScreen);
+  addEdgeSwipeBack(document.getElementById("adminRegistroScreen"), closeAdminRegistroScreen);
   addEdgeSwipeBack(elVenueListEditScreen, closeVenueListEditScreen);
   addEdgeSwipeBack(elProfileScreen, closeProfileScreen);
   addEdgeSwipeBack(elMyBandsScreen, closeMyBandsScreen);
@@ -14503,7 +15373,7 @@
   /* ---------------- boot ---------------- */
   // loadMe per primo: decide se c'e' una band attiva, e senza quella le
   // altre chiamate risponderebbero 409.
-  loadMe().then(loadAllData).then(showInviteOutcome).then(apriPalcoDalLink).then(apriCompitoDalLink).then(apriSegnalazioniDalLink).then(apriAzioneDalLink).then(pushAvvioAutomatico);
+  loadMe().then(loadAllData).then(offriPalchiDellaZona).then(showInviteOutcome).then(apriPalcoDalLink).then(apriCompitoDalLink).then(apriSegnalazioniDalLink).then(apriAzioneDalLink).then(pushAvvioAutomatico);
 })();
 
 /* ---------------- aggiornamenti dell'app ----------------

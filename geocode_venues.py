@@ -29,7 +29,7 @@ def main():
     if not force_all:
         where = f"lat IS NULL AND ({where})"
     rows = conn.execute(
-        f"SELECT id, name, address, city, lat, lng FROM locations WHERE {where}"
+        f"SELECT id, name, address, locality, city, lat, lng FROM locations WHERE {where}"
     ).fetchall()
     print(f"Palchi da geocodificare: {len(rows)}" + (" (prova, non scrivo)" if prova else ""))
 
@@ -38,7 +38,7 @@ def main():
     cache = {}
     precisi, approssimati, incerti, falliti = 0, 0, 0, []
     for i, r in enumerate(rows, 1):
-        domande, domanda_citta, nomi = piazze_app.geo_candidates(r["name"], r["address"], r["city"])
+        domande, domanda_citta, nomi = piazze_app.geo_candidates(r["name"], r["address"], r["city"], r["locality"])
         etichetta = f"{r['name']} (id {r['id']})"
         if not domande:
             continue
@@ -58,8 +58,8 @@ def main():
             approssimati += 1
         if not prova:
             conn.execute(
-                "UPDATE locations SET lat = ?, lng = ?, updated_at = ? WHERE id = ?",
-                (lat, lng, piazze_app.now_iso(), r["id"]),
+                "UPDATE locations SET lat = ?, lng = ?, geo_precision = ?, updated_at = ? WHERE id = ?",
+                (lat, lng, piazze_app.geo_precisione_da_salvare(precisione), piazze_app.now_iso(), r["id"]),
             )
             conn.commit()
         print(f"  [{i}/{len(rows)}] {precisione.upper()} \"{etichetta}\" -> {lat:.5f}, {lng:.5f}")

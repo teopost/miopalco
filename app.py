@@ -7,6 +7,7 @@ Avvio:  python3 app.py [porta]
 
 import base64
 import csv
+import difflib
 import hashlib
 import html
 import http.cookies
@@ -23,6 +24,9 @@ import unicodedata
 import urllib.error
 import urllib.request
 import io
+import logging
+import logging.handlers
+import traceback
 import uuid
 import zipfile
 from datetime import date, datetime, timedelta, timezone
@@ -44,6 +48,14 @@ except ImportError:  # pragma: no cover - immagine senza la libreria
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "crm.db")
+# Quante copie crm.db.bak.* tenere in data/: ogni copia nuova fa sparire le
+# piu' vecchie oltre questo numero. Non e' solo ordine: una copia fatta prima
+# di cancellare un utente contiene ancora i suoi dati, e tenerle per sempre
+# vorrebbe dire non cancellarlo mai davvero. 0 = non eliminarne nessuna.
+try:
+    DB_BACKUP_RETENTION = max(0, int(os.environ.get("DB_BACKUP_RETENTION", "").strip() or 7))
+except ValueError:
+    DB_BACKUP_RETENTION = 7
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 # La pagina di presentazione: la stessa che GitHub Pages pubblica da docs/,
 # servita qui a chi apre miopalco.com senza aver fatto l'accesso.
@@ -283,7 +295,9 @@ def auth_enabled():
 
 LOCATION_FIELDS = [
     "name", "type", "category", "context", "seasonality", "live_period",
-    "address", "city", "lat", "lng",
+    # "locality" e' la localita' o frazione fra la via e il comune
+    # (5 ottobre 2026): "Lido di Savio" sta nel comune di Ravenna.
+    "address", "locality", "city", "lat", "lng",
     # Attenzione al nome: "phone" e' il cellulare — c'era prima che i due
     # numeri fossero distinti, ed e' quello su cui vivono Chiama e WhatsApp.
     # Rinominare la colonna avrebbe voluto dire spostare i numeri gia'
@@ -1037,6 +1051,8 @@ def migrate_schema(conn):
         conn.execute("ALTER TABLE locations ADD COLUMN category TEXT")
     if "owner_email" not in cols:
         conn.execute("ALTER TABLE locations ADD COLUMN owner_email TEXT")
+    if "locality" not in cols:
+        conn.execute("ALTER TABLE locations ADD COLUMN locality TEXT")
     if "landline" not in cols:
         # Il fisso arriva accanto al cellulare, che sulla colonna "phone"
         # c'era gia' (vedi LOCATION_FIELDS).
@@ -1245,6 +1261,8 @@ def migrate_schema(conn):
     migrate_drop_season(conn)
     migrate_to_next_contact_date(conn)
     migrate_programming_months(conn)
+    migrate_geo_precision(conn)
+    migrate_palchi_di_partenza(conn)
     migrate_drop_rifiutato(conn)
     migrate_to_venue_lifecycle(conn)
     migrate_to_gig_opportunita(conn)
@@ -1673,6 +1691,40 @@ def migrate_programming_months(conn):
     print("  Mesi di programmazione: %d palchi prendono il mese della data di contatto." % n)
 
 
+def migrate_geo_precision(conn):
+    """Quanto e' sicuro il punto di un palco (5 ottobre 2026): "preciso",
+    "centro" (trovata solo la citta') o "centro incerto" (e la citta' puo'
+    essere piu' d'una). Prima si diceva in un toast e si perdeva: sulla mappa
+    un punto messo in piazza sembrava preciso come gli altri, e il 40% dei
+    palchi stava impilato sui centri citta'.
+
+    Per i punti che c'erano si deduce l'unica cosa sicura: due palchi con
+    le stesse identiche coordinate sono due centri citta', perche' due locali
+    veri non cadono mai sullo stesso metro. Gli altri restano NULL, cioe'
+    "non si sa", e non si segnano come incerti."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(locations)").fetchall()}
+    if "geo_precision" in cols:
+        return
+    conn.execute("ALTER TABLE locations ADD COLUMN geo_precision TEXT")
+    n = conn.execute(
+        "UPDATE locations SET geo_precision = 'centro' WHERE lat IS NOT NULL AND lng IS NOT NULL "
+        "AND EXISTS (SELECT 1 FROM locations o WHERE o.id != locations.id "
+        "AND round(o.lat, 5) = round(locations.lat, 5) AND round(o.lng, 5) = round(locations.lng, 5))"
+    ).rowcount
+    print("  Precisione della posizione: %d palchi stanno su un centro citta'." % n)
+
+
+def migrate_palchi_di_partenza(conn):
+    """Quando a una band e' stata fatta la domanda dei palchi della zona
+    (7 ottobre 2026). Le band che c'erano gia' la segnano come fatta: la
+    domanda e' per chi arriva adesso, non per chi la rubrica ce l'ha."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(workspaces)").fetchall()}
+    if "starter_offered_at" in cols:
+        return
+    conn.execute("ALTER TABLE workspaces ADD COLUMN starter_offered_at TEXT")
+    conn.execute("UPDATE workspaces SET starter_offered_at = created_at")
+
+
 def migrate_tasks_senza_palco(conn):
     """Toglie il vincolo che legava ogni compito a un palco.
 
@@ -1993,10 +2045,9 @@ LAST_SEEN_THROTTLE_SECONDS = 60
 def touch_last_seen(conn, email, notifica=True):
     now = datetime.now(timezone.utc)
     soglia = (now - timedelta(seconds=LAST_SEEN_THROTTLE_SECONDS)).isoformat()
-    # Il valore di prima serve solo per misurare la pausa: senza notifiche da
-    # mandare non vale una lettura in piu' su ogni richiesta.
+    # Il valore di prima serve a misurare la pausa, per il registro.
     ultimo = None
-    if notifica and telegram_enabled():
+    if notifica:
         riga = conn.execute(
             "SELECT last_seen_at FROM user_profiles WHERE email = ?", (email,)
         ).fetchone()
@@ -2008,14 +2059,19 @@ def touch_last_seen(conn, email, notifica=True):
     )
     # updated_at resta fermo: essersi fatti vedere non e' una modifica al
     # profilo, e sporcarlo confonderebbe chi guarda quando e' cambiato cosa.
+    # Il commit va fatto anche quando non ha scritto niente: l'UPDATE apre
+    # comunque una transazione, e lasciata aperta teneva il database
+    # bloccato per tutta la richiesta. Il 7 ottobre 2026 una copia di
+    # sicurezza fatta dentro quella transazione e' rimasta appesa per
+    # sempre, e nessuno poteva piu' salvare niente.
+    conn.commit()
     if not cur.rowcount:
         return
-    conn.commit()
     # Solo chi ha scritto davvero la riga puo' notificare: l'app installata
     # apre dieci richieste insieme e la scrittura riesce a una sola, quindi
     # e' quella la guardia contro il messaggio in doppio.
     if ultimo and ultimo < (now - timedelta(minutes=NOTIFY_VISIT_GAP_MINUTES)).isoformat():
-        notify_visit(conn, email, ultimo, now)
+        registra_rientro(conn, email, ultimo, now)
 
 
 def get_session_email(conn, session_id):
@@ -2126,6 +2182,7 @@ def set_telegram_admin(conn, on, email):
     )
     conn.commit()
     TELEGRAM_ADMIN_ON = bool(on)
+    registra("admin_telegram", email, acceso="si" if on else "no")
     return telegram_stato()
 
 
@@ -2196,33 +2253,208 @@ def da_quanto(prima_iso, adesso):
     return "ieri" if giorni == 1 else "%d giorni fa" % giorni
 
 
+# --- il registro ---------------------------------------------------------
+# Quello che succede nell'app, una riga per fatto, in data/logs (7 ottobre
+# 2026, chiesto da Stefano: Telegram per gli accessi era "un po'
+# riduttivo"). data/ e' montata dal computer, quindi i file si leggono da
+# fuori senza entrare nel container e sopravvivono ai deploy.
+#
+# Un file al giorno: miopalco.log e' quello di oggi, quelli dei giorni prima
+# prendono la data in coda (miopalco.log.2026-10-07) e dopo LOG_GIORNI se ne
+# vanno da soli. Il cambio file e' alla mezzanotte del container, che e' in
+# UTC; l'ora scritta nelle righe e' quella italiana.
+#
+# Una riga: data e ora, il fatto, poi chiave=valore. Si legge a occhio e si
+# cerca con grep ("grep accesso", "grep email=mario"). email= e' sempre chi
+# ha fatto la cosa; chi l'ha subita, quando e' un altro, e' utente=.
+#
+# Scrivere qui non deve mai poter far fallire niente: un disco pieno non
+# ferma un accesso.
+LOG_DIR = os.path.join(BASE_DIR, "data", "logs")
+LOG_GIORNI = int(os.environ.get("LOG_RETENTION_DAYS", "180") or 180)
+_registro = [None]
+
+
+def _registro_logger():
+    if _registro[0] is None:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        logger = logging.getLogger("miopalco.registro")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        gestore = logging.handlers.TimedRotatingFileHandler(
+            os.path.join(LOG_DIR, "miopalco.log"), when="midnight",
+            backupCount=LOG_GIORNI, encoding="utf-8",
+        )
+        gestore.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(gestore)
+        _registro[0] = logger
+    return _registro[0]
+
+
+def _registro_valore(v):
+    testo = str(v).replace("\r", " ").replace("\n", " ").strip()
+    if not testo or any(c in testo for c in ' "='):
+        testo = '"' + testo.replace('"', "'") + '"'
+    return testo
+
+
+def registra(fatto, email=None, dettaglio=None, **campi):
+    """Una riga nel registro. "dettaglio" sono righe in piu' sotto quella
+    principale, rientrate (il traceback di un errore)."""
+    try:
+        parti = [datetime.now(FUSO_BAND).strftime("%Y-%m-%d %H:%M:%S"), fatto]
+        if email:
+            parti.append("email=" + _registro_valore(email))
+        for chiave, valore in campi.items():
+            if valore is None or valore == "":
+                continue
+            parti.append("%s=%s" % (chiave, _registro_valore(valore)))
+        riga = " ".join(parti)
+        if dettaglio:
+            riga += "\n" + "\n".join("    " + r for r in str(dettaglio).rstrip().splitlines())
+        _registro_logger().info(riga)
+    except Exception as e:
+        print("  Registro non scritto: %s" % e)
+
+
+# --- i browser dentro le app (8 ottobre 2026) ---------------------------
+# Un link toccato su Facebook, Instagram, Messenger, LinkedIn o TikTok non si
+# apre in Chrome o Safari ma nel browser che l'app si porta dentro, e Google
+# li rifiuta tutti ("Errore 403: disallowed_useragent"). Il giro si fermava
+# su una pagina di Google in inglese, senza che al server arrivasse niente:
+# il link condiviso nei gruppi Facebook di musicisti non ha portato nessuna
+# registrazione e nessuno lo sapeva. Questi browser si riconoscono dallo
+# User-Agent, e a loro la pagina di accesso spiega come uscire.
+_BROWSER_INTERNI = [
+    ("Messenger", re.compile(r"Messenger|FB_IAB/MESSENGER", re.I)),
+    ("Instagram", re.compile(r"Instagram", re.I)),
+    ("Facebook", re.compile(r"FBAN|FBAV|FB_IAB|FB4A|FBIOS")),
+    ("LinkedIn", re.compile(r"LinkedInApp", re.I)),
+    ("TikTok", re.compile(r"musical_ly|BytedanceWebview|TikTok", re.I)),
+]
+_ROBOT_RE = re.compile(
+    r"bot|crawl|spider|slurp|facebookexternalhit|facebot|preview|curl|wget|"
+    r"python|go-http|okhttp|headless|lighthouse|monitor", re.I)
+
+
+def browser_interno(ua):
+    """Il nome dell'app il cui browser interno ha aperto la pagina, o None."""
+    for nome, regola in _BROWSER_INTERNI:
+        if regola.search(ua or ""):
+            return nome
+    return None
+
+
+def sistema_di(ua):
+    ua = ua or ""
+    if re.search(r"iPhone|iPad|iPod", ua):
+        return "iOS"
+    if "Android" in ua:
+        return "Android"
+    return "computer"
+
+
+def e_un_robot(ua):
+    """Le anteprime dei link e i controlli automatici: nel registro delle
+    visite sarebbero solo rumore."""
+    return not ua or bool(_ROBOT_RE.search(ua))
+
+
+# Admin › Registro (7 ottobre 2026): il registro letto dal telefono. Si
+# legge un file alla volta (un giorno), dalla riga piu' recente, e al
+# massimo REGISTRO_MAX_RIGHE: un giorno normale ne ha poche decine.
+REGISTRO_MAX_RIGHE = 2000
+_REGISTRO_RIGA_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) (\S+)(.*)$")
+_REGISTRO_CAMPO_RE = re.compile(r'(\w+)=(?:"([^"]*)"|(\S+))')
+_REGISTRO_FILE_RE = re.compile(r"^miopalco\.log(?:\.(\d{4}-\d{2}-\d{2}))?$")
+
+
+def registro_file():
+    """I file del registro, dal piu' recente: quello di oggi e poi i giorni
+    passati, col nome che hanno sul disco e la data che li distingue."""
+    try:
+        nomi = os.listdir(LOG_DIR)
+    except OSError:
+        return []
+    elenco = []
+    for nome in nomi:
+        m = _REGISTRO_FILE_RE.match(nome)
+        if m:
+            elenco.append({"name": nome, "date": m.group(1)})
+    elenco.sort(key=lambda f: f["date"] or "9999", reverse=True)
+    return elenco
+
+
+def leggi_registro(conn, nome=None):
+    file = registro_file()
+    if not file:
+        return {"files": [], "file": None, "rows": [], "truncated": False, "names": {}}
+    scelto = next((f for f in file if f["name"] == nome), file[0])
+    righe = []
+    try:
+        with open(os.path.join(LOG_DIR, scelto["name"]), encoding="utf-8", errors="replace") as f:
+            for testo in f:
+                testo = testo.rstrip("\n")
+                if testo.startswith("    ") and righe:
+                    righe[-1]["detail"] = ((righe[-1]["detail"] + "\n") if righe[-1]["detail"] else "") + testo[4:]
+                    continue
+                m = _REGISTRO_RIGA_RE.match(testo)
+                if not m:
+                    continue
+                campi = {}
+                for c in _REGISTRO_CAMPO_RE.finditer(m.group(4)):
+                    campi[c.group(1)] = c.group(2) if c.group(2) is not None else c.group(3)
+                righe.append({"date": m.group(1), "time": m.group(2), "event": m.group(3),
+                              "fields": campi, "detail": ""})
+    except OSError:
+        pass
+    righe.reverse()
+    troncato = len(righe) > REGISTRO_MAX_RIGHE
+    righe = righe[:REGISTRO_MAX_RIGHE]
+    # I nomi delle persone che compaiono, per scrivere "Mario Rossi" e non
+    # l'email. Chi e' stato eliminato resta con l'email.
+    email = {r["fields"].get(k) for r in righe for k in ("email", "utente") if r["fields"].get(k)}
+    nomi = {}
+    if email:
+        segnaposto = ",".join("?" for _ in email)
+        for r in conn.execute(
+            f"SELECT email, name FROM user_profiles WHERE email IN ({segnaposto})", list(email)
+        ).fetchall():
+            if r["name"]:
+                nomi[r["email"]] = r["name"]
+    return {"files": file, "file": scelto["name"], "rows": righe,
+            "truncated": troncato, "names": nomi}
+
+
+def banda_di(conn, email):
+    """Il nome della band attiva di una persona, per il registro."""
+    try:
+        ws = resolve_active_workspace(conn, email)
+        if ws:
+            riga = conn.execute("SELECT name FROM workspaces WHERE id = ?", (ws,)).fetchone()
+            return riga["name"] if riga else None
+    except Exception:
+        pass
+    return None
+
+
 def notify_login(conn, email, primo_accesso):
-    """Il giro completo da Google: dispositivo nuovo, o sessione scaduta."""
-    if not telegram_enabled():
+    """Su Telegram arriva solo chi si registra (7 ottobre 2026, Stefano):
+    gli accessi di chi c'era gia' vanno nel registro, non sul telefono."""
+    if not primo_accesso or not telegram_enabled():
         return
     nome, banda = chi_e(conn, email)
-    telegram_send("%s <b>%s</b> è entrato in MioPalco%s\n%s · %s" % (
-        "🆕" if primo_accesso else "🎤",
-        nome,
-        " per la prima volta" if primo_accesso else "",
-        html.escape(email),
-        banda,
-    ))
-
-
-def notify_visit(conn, email, ultimo_iso, adesso):
-    """Chi rientra nell'app con la sessione che ha gia'. E' il movimento che
-    si vede nell'elenco utenti sotto "ultimo accesso": li' cambia a ogni
-    giro, qui arriva solo quando e' stato via abbastanza da essere un
-    ingresso nuovo e non la stessa sessione di lavoro che continua."""
-    if not telegram_enabled():
-        return
-    nome, banda = chi_e(conn, email)
-    quando = da_quanto(ultimo_iso, adesso)
-    telegram_send("👋 <b>%s</b> è tornato in MioPalco\n%s · %s%s" % (
+    telegram_send("🆕 <b>%s</b> si è registrato in MioPalco\n%s · %s" % (
         nome, html.escape(email), banda,
-        " · ultima volta " + quando if quando else "",
     ))
+
+
+def registra_rientro(conn, email, ultimo_iso, adesso):
+    """Chi rientra nell'app con la sessione che ha gia', dopo essere stato
+    via abbastanza da essere un ingresso nuovo e non la stessa sessione di
+    lavoro che continua. Fino al 7 ottobre 2026 arrivava su Telegram."""
+    registra("rientro", email, band=banda_di(conn, email),
+             assente_da=da_quanto(ultimo_iso, adesso))
 
 
 # --- le notifiche push sul telefono -------------------------------------
@@ -2700,6 +2932,7 @@ def set_promemoria_ora(conn, ora, email):
     )
     conn.commit()
     PROMEMORIA_ORA = ora
+    registra("admin_promemoria", email, ora=ora)
     return promemoria_stato(conn)
 
 
@@ -2786,15 +3019,19 @@ def resolve_active_workspace(conn, email):
     return fallback["workspace_id"]
 
 
-def create_workspace(conn, email, name, genre=None, city=None):
+def create_workspace(conn, email, name, genre=None, city=None, palchi_di_partenza=False):
+    """palchi_di_partenza: solo la prima band, quella del wizard, si vedra'
+    proporre i palchi della sua zona. Le altre nascono con la domanda gia'
+    fatta."""
     name = (name or "").strip()
     if not name:
         raise ApiError(400, "Il nome della band è obbligatorio")
     ts = now_iso()
     cur = conn.execute(
-        "INSERT INTO workspaces (name, genre, city, created_by, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (name, (genre or "").strip() or None, (city or "").strip() or None, email, ts, ts),
+        "INSERT INTO workspaces (name, genre, city, created_by, created_at, updated_at, "
+        "starter_offered_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, (genre or "").strip() or None, (city or "").strip() or None, email, ts, ts,
+         None if palchi_di_partenza else ts),
     )
     ws_id = cur.lastrowid
     if email:
@@ -2814,6 +3051,8 @@ def create_workspace(conn, email, name, genre=None, city=None):
     seed_workspace_defaults(conn, ws_id, name, genre, person)
     conn.commit()
     set_active_workspace(conn, email, ws_id)
+    registra("band_creata", email, band=name, id=ws_id, citta=city,
+             prima="si" if palchi_di_partenza else None)
     return ws_id
 
 
@@ -2890,6 +3129,10 @@ def remove_member(conn, workspace_id, actor_email, target_email):
         (target_email, workspace_id),
     )
     conn.commit()
+    if actor_email == target_email:
+        registra("uscito_dalla_band", target_email, id=workspace_id)
+    else:
+        registra("componente_rimosso", actor_email, utente=target_email, id=workspace_id)
 
 
 # --- inviti -------------------------------------------------------------
@@ -2981,6 +3224,8 @@ def accept_invite(conn, token, email):
     conn.commit()
     set_active_workspace(conn, email, ws_id)
     name_row = conn.execute("SELECT name FROM workspaces WHERE id = ?", (ws_id,)).fetchone()
+    registra("invito_accettato", email, band=name_row["name"] if name_row else None,
+             id=ws_id, invitato_da=row["created_by"])
     return (name_row["name"] if name_row else None), None
 
 
@@ -3109,6 +3354,7 @@ def fetch_me(conn, email):
     # Senza band attiva l'app non ha dati da mostrare: il wizard deve partire
     # anche se il profilo risulta gia' compilato da un giro precedente.
     d["needs_workspace"] = active is None
+    d["starter_pending"] = partenza_in_attesa(conn, active, email)
     # Con il login spento non c'e' un utente da riconoscere: l'app gira in
     # locale per una persona sola, che e' anche l'amministratore.
     d["is_admin"] = (not auth_enabled()) or is_admin(email)
@@ -3159,7 +3405,8 @@ def update_me(conn, email, body):
             # Chi finisce il wizard senza aver accettato un invito parte con la
             # propria band vuota: e' il suo primo workspace.
             if resolve_active_workspace(conn, email) is None:
-                create_workspace(conn, email, row["artist_name"], row["genre"], row["city"])
+                create_workspace(conn, email, row["artist_name"], row["genre"], row["city"],
+                                 palchi_di_partenza=True)
         conn.commit()
     return fetch_me(conn, email)
 
@@ -5361,7 +5608,60 @@ def geo_citta_incerta(city):
     return len(quanti) > 1
 
 
-def geo_candidates(name, address, city):
+# Le vie che portano una data (7 ottobre 2026): "Via XXV luglio" nella
+# scheda, "Via 25 luglio" su OpenStreetMap, e Nominatim non sa che sono la
+# stessa strada (Birretteria by Baraka's, Morciano). Capita anche al
+# contrario, e con tutte le date delle vie italiane: XXV Aprile, IV
+# Novembre, XX Settembre, I Maggio. Si cambia grafia solo al numero seguito
+# da un mese, cosi' "Vittorio Emanuele II" resta com'e'.
+GEO_MESI = ("gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio",
+            "agosto", "settembre", "ottobre", "novembre", "dicembre")
+GEO_DATA_RE = re.compile(
+    r"\b([IVXL]{1,6}|\d{1,2})(°|º)?(\s+)(" + "|".join(GEO_MESI) + r")\b", re.I
+)
+_ROMANI = [(10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
+
+
+def _in_romani(n):
+    testo = ""
+    for valore, segno in _ROMANI:
+        while n >= valore:
+            testo += segno
+            n -= valore
+    return testo
+
+
+def _da_romani(testo):
+    valori = {"I": 1, "V": 5, "X": 10, "L": 50}
+    totale, prima = 0, 0
+    for c in reversed(testo.upper()):
+        v = valori.get(c)
+        if v is None:
+            return None
+        totale = totale - v if v < prima else totale + v
+        prima = max(prima, v)
+    return totale if _in_romani(totale) == testo.upper() else None
+
+
+def geo_data_altra_grafia(address):
+    """"Via XXV luglio, 55" -> "Via 25 luglio, 55" e viceversa. None se
+    nell'indirizzo non c'e' una data, o se il numero non e' un giorno."""
+    m = GEO_DATA_RE.search(address or "")
+    if not m:
+        return None
+    numero = m.group(1)
+    if numero.isdigit():
+        giorno = int(numero)
+        altro = _in_romani(giorno) if 1 <= giorno <= 31 else None
+    else:
+        giorno = _da_romani(numero)
+        altro = str(giorno) if giorno and 1 <= giorno <= 31 else None
+    if not altro:
+        return None
+    return address[:m.start()] + altro + m.group(3) + m.group(4) + address[m.end():]
+
+
+def geo_candidates(name, address, city, locality=None):
     """Le domande da fare, dalla piu' precisa alla piu' vaga: il nome del
     locale (che su OpenStreetMap a volte c'e' gia'), poi l'indirizzo, poi la
     sola citta'. Torna anche la domanda della sola citta' e i nomi con cui
@@ -5389,14 +5689,25 @@ def geo_candidates(name, address, city):
             dove = f"{dove}, Italia"
     name = (name or "").strip()
     address = (address or "").strip()
+    locality = (locality or "").strip()
 
+    # La localita' entra solo accanto alla via, e la domanda senza resta
+    # come riserva: da sola, "Lido di Savio, Ravenna" porterebbe al centro
+    # della frazione, e geo_best lo chiamerebbe preciso.
     domande = []
     if name and dove:
         domande.append(f"{name}, {dove}")
-    if address and dove:
-        domande.append(f"{address}, {dove}")
-    elif address:
-        domande.append(f"{address}, Italia")
+    # L'indirizzo come e' scritto, poi con la data nell'altra grafia:
+    # una domanda in piu' solo per le vie che ne portano una.
+    for indirizzo in (address, geo_data_altra_grafia(address)):
+        if not indirizzo:
+            continue
+        if locality and dove:
+            domande.append(f"{indirizzo}, {locality}, {dove}")
+        if dove:
+            domande.append(f"{indirizzo}, {dove}")
+        else:
+            domande.append(f"{indirizzo}, Italia")
     domanda_citta = dove or None
     if domanda_citta:
         domande.append(domanda_citta)
@@ -5531,6 +5842,13 @@ def geo_best(domande, domanda_citta, nomi=(), cache=None):
     return None
 
 
+def geo_precisione_da_salvare(precisione):
+    """Da quello che dice geo_best alla parola della colonna geo_precision:
+    "centro citta'" con l'apostrofo era un'etichetta da leggere, nella
+    colonna e' "centro"."""
+    return {"preciso": "preciso", "centro incerto": "centro incerto"}.get(precisione, "centro")
+
+
 def geocode_location(conn, ws, loc_id, body=None):
     """Trova il punto di un palco e lo salva. Con "force" lo rifa'
     anche se ce l'ha gia': serve quando l'indirizzo e' stato corretto.
@@ -5540,7 +5858,7 @@ def geocode_location(conn, ws, loc_id, body=None):
     posizione di un indirizzo diverso da quello che hai davanti sarebbe
     difficile da spiegare (stessa regola della copertina dai social)."""
     row = conn.execute(
-        "SELECT id, name, address, city, lat, lng FROM locations "
+        "SELECT id, name, address, locality, city, lat, lng FROM locations "
         "WHERE id = ? AND workspace_id = ?", (loc_id, ws)
     ).fetchone()
     if not row:
@@ -5555,7 +5873,8 @@ def geocode_location(conn, ws, loc_id, body=None):
         return valore.strip() if isinstance(valore, str) and valore.strip() else row[campo]
 
     domande, domanda_citta, nomi = geo_candidates(
-        dalla_scheda("name"), dalla_scheda("address"), dalla_scheda("city")
+        dalla_scheda("name"), dalla_scheda("address"), dalla_scheda("city"),
+        dalla_scheda("locality")
     )
     if not domande:
         return {"esito": "senza_indirizzo", "location": fetch_location(conn, ws, loc_id)}
@@ -5571,11 +5890,543 @@ def geocode_location(conn, ws, loc_id, body=None):
         precisione = "centro incerto"
 
     conn.execute(
-        "UPDATE locations SET lat = ?, lng = ?, updated_at = ? WHERE id = ?",
-        (punto[0], punto[1], now_iso(), loc_id),
+        "UPDATE locations SET lat = ?, lng = ?, geo_precision = ?, updated_at = ? WHERE id = ?",
+        (punto[0], punto[1], geo_precisione_da_salvare(precisione), now_iso(), loc_id),
     )
     conn.commit()
     return {"esito": "fatto", "precisione": precisione, "location": fetch_location(conn, ws, loc_id)}
+
+
+# ---- la ricerca avanzata della posizione (6 ottobre 2026) ----
+#
+# Nominatim e' letterale: "Via Dante Alighieri" non trova "Viale Dante
+# Alighieri", "Piazza G.Falcone P.Borsellino" non trova "Piazzale Giovanni
+# Falcone e Paolo Borsellino". La ricerca normale fa tre domande e si ferma;
+# questa riscrive l'indirizzo in piu' modi — via le iniziali, via il civico,
+# scambiando Via/Viale/Piazza/Piazzale, alla fine il solo nome della strada —
+# e si ferma alla prima risposta che sta nel comune dichiarato.
+#
+# Parte solo a mano, un palco alla volta, e ha un tetto di domande: Stefano
+# non voleva che il giro su tutti i palchi diventasse venti domande a palco
+# a OpenStreetMap. E non salva: quello che trova e' un'ipotesi (la
+# "Tangenziale" di Porto Tolle diventata "Tangenziale Sud"), la conferma chi
+# guarda la scheda.
+
+GEO_AVANZATA_MAX_DOMANDE = 16
+
+# La parola davanti al nome della strada, con le abbreviazioni che si
+# trovano scritte nelle schede.
+GEO_TIPI_STRADA = {
+    "via": "Via", "v": "Via",
+    "viale": "Viale", "v.le": "Viale", "vle": "Viale",
+    "piazza": "Piazza", "p.za": "Piazza", "p.zza": "Piazza", "pza": "Piazza", "pzza": "Piazza",
+    "piazzale": "Piazzale", "p.le": "Piazzale", "ple": "Piazzale",
+    "piazzetta": "Piazzetta", "largo": "Largo", "l.go": "Largo",
+    "corso": "Corso", "c.so": "Corso", "vicolo": "Vicolo",
+    "strada": "Strada", "str": "Strada", "contrada": "Contrada",
+    "lungomare": "Lungomare", "borgo": "Borgo",
+    "localita'": "Località", "località": "Località", "loc": "Località",
+}
+# Con quali altre parole puo' averla scritta OpenStreetMap.
+GEO_STRADE_PARENTI = {
+    "Via": ["Viale", "Strada"], "Viale": ["Via"], "Strada": ["Via"],
+    "Piazza": ["Piazzale", "Largo", "Piazzetta"], "Piazzale": ["Piazza", "Largo"],
+    "Piazzetta": ["Piazza"], "Largo": ["Piazza", "Piazzale"],
+    "Corso": ["Via", "Viale"], "Vicolo": ["Via"], "Contrada": ["Via"],
+}
+GEO_CIVICO_RE = re.compile(
+    r"^(.*?)[,\s]+(\d+\s*[a-zA-Z]?(?:\s*/\s*\w+)?|snc|s\.n\.c\.?)\s*$", re.I)
+# Le parole che nel nome non distinguono niente: "parte ovest" e' "Ovest".
+GEO_PAROLE_VUOTE = {"parte"}
+GEO_ARTICOLI = {"di", "de", "del", "dei", "degli", "della", "delle", "dello", "d"}
+GEO_CAMPI_STRADA = ("road", "pedestrian", "square", "footway", "path", "place")
+
+
+def geo_scomponi_indirizzo(address):
+    """"Piazza G.Falcone P.Borsellino, 17" -> ("Piazza", "Falcone Borsellino",
+    "17"). Il tipo di strada torna scritto per intero ("p.le" -> "Piazzale"),
+    le iniziali puntate spariscono — salvo "S.", che e' "San" — e il civico
+    sta a parte perche' OpenStreetMap quasi sempre non ce l'ha."""
+    testo = re.sub(r"\s+", " ", (address or "").strip())
+    civico = None
+    m = GEO_CIVICO_RE.match(testo)
+    if m and m.group(1).strip():
+        testo, civico = m.group(1).strip(" ,"), m.group(2).strip()
+    tipo = None
+    m = re.match(r"^([A-Za-zàèéìòù'.]+)\s+(.*)$", testo)
+    if m:
+        chiave = m.group(1).lower().rstrip(".")
+        if chiave in GEO_TIPI_STRADA:
+            tipo, testo = GEO_TIPI_STRADA[chiave], m.group(2)
+    testo = re.sub(r"\bS\.\s*", "San ", testo)
+    testo = re.sub(r"\b[A-Za-z]\.\s*", "", testo)
+    parole = [p for p in testo.replace(",", " ").split() if p.lower() not in GEO_PAROLE_VUOTE]
+    return tipo, " ".join(parole), civico
+
+
+def geo_varianti_indirizzo(address, anche_la_data=True):
+    """Le scritture dell'indirizzo da provare, dalla piu' vicina a quella
+    scritta alla piu' spoglia. Senza civico dalla seconda in poi: e' il
+    pezzo che OpenStreetMap ha meno spesso, e una domanda col civico che
+    non c'e' non trova niente."""
+    tipo, nome, civico = geo_scomponi_indirizzo(address)
+    if not nome:
+        return []
+    varianti = []
+    # La data nell'altra grafia per prima: se la via e' "25 luglio" su
+    # OpenStreetMap, nessuna delle altre varianti di "XXV luglio" la trova.
+    altra = geo_data_altra_grafia(address) if anche_la_data else None
+    if altra:
+        varianti.extend(geo_varianti_indirizzo(altra, anche_la_data=False))
+    if tipo:
+        varianti.append(f"{tipo} {nome}, {civico}" if civico else f"{tipo} {nome}")
+        varianti.append(f"{tipo} {nome}")
+        for altro in GEO_STRADE_PARENTI.get(tipo, []):
+            varianti.append(f"{altro} {nome}")
+    varianti.append(nome)
+    # "dei Salici" -> "Salici": l'articolo davanti a volte e' scritto
+    # diverso ("delle", "d'") e fa sbagliare la domanda.
+    parole = nome.split()
+    while parole and parole[0].lower().replace("'", "") in GEO_ARTICOLI:
+        parole = parole[1:]
+    if parole and " ".join(parole) != nome:
+        varianti.append(" ".join(parole))
+    viste, ordinate = set(), []
+    for v in varianti:
+        if v.lower() not in viste:
+            viste.add(v.lower())
+            ordinate.append(v)
+    return ordinate
+
+
+def geo_strada_della_risposta(risposta):
+    dettagli = risposta.get("address") or {}
+    for campo in GEO_CAMPI_STRADA:
+        if dettagli.get(campo):
+            return dettagli[campo]
+    return None
+
+
+def geo_luogo_della_risposta(risposta, strada):
+    """Dove sta il punto, da leggere: "Via Budrione Migliarina Ovest 112,
+    Migliarina, Carpi". Non il display_name di Nominatim, che comincia col
+    nome di quello che c'e' al civico ("Affittacamere Nonna Ida") e fa
+    pensare a un altro posto."""
+    dettagli = risposta.get("address") or {}
+    pezzi = []
+    if strada:
+        civico = dettagli.get("house_number")
+        pezzi.append(f"{strada} {civico}" if civico else strada)
+    for campo in ("hamlet", "suburb", "village", "town", "city", "municipality"):
+        valore = dettagli.get(campo)
+        if valore and valore not in pezzi:
+            pezzi.append(valore)
+    return ", ".join(pezzi[:3]) or ", ".join((risposta.get("display_name") or "").split(", ")[:3])
+
+
+def geocode_avanzata(conn, ws, loc_id, body=None):
+    """Prova le varianti dell'indirizzo e torna il primo punto che sta nel
+    comune dichiarato, senza salvarlo. Nome, indirizzo e citta' arrivano
+    dalla scheda aperta, come per la ricerca normale."""
+    row = conn.execute(
+        "SELECT id, name, address, locality, city FROM locations "
+        "WHERE id = ? AND workspace_id = ?", (loc_id, ws)
+    ).fetchone()
+    if not row:
+        raise ApiError(404, "Palco non trovato")
+    body = body or {}
+
+    def dalla_scheda(campo):
+        valore = body.get(campo)
+        return valore.strip() if isinstance(valore, str) and valore.strip() else row[campo]
+
+    address = dalla_scheda("address")
+    _, domanda_citta, nomi = geo_candidates(dalla_scheda("name"), address, dalla_scheda("city"))
+    if not domanda_citta:
+        return {"esito": "senza_indirizzo"}
+    if not address:
+        return {"esito": "senza_via"}
+    locality = dalla_scheda("locality")
+
+    domande = []
+    for variante in geo_varianti_indirizzo(address):
+        if locality:
+            domande.append(f"{variante}, {locality}, {domanda_citta}")
+        domande.append(f"{variante}, {domanda_citta}")
+    domande = domande[:GEO_AVANZATA_MAX_DOMANDE]
+
+    _, _, civico = geo_scomponi_indirizzo(address)
+    try:
+        for i, domanda in enumerate(domande, 1):
+            for r in geo_lookup(domanda):
+                if r.get("addresstype") in GEO_TIPI_CITTA or not geo_dice_la_citta(r, nomi):
+                    continue
+                strada = geo_strada_della_risposta(r)
+                proposta = None
+                if strada:
+                    proposta = f"{strada}, {civico}" if civico else strada
+                    if proposta.lower() == address.strip().lower():
+                        proposta = None
+                lat, lng = geo_punto(r)
+                return {
+                    "esito": "trovato", "lat": lat, "lng": lng,
+                    "luogo": geo_luogo_della_risposta(r, strada),
+                    "indirizzo": proposta, "domande": i,
+                }
+    except Exception:
+        raise ApiError(502, "La mappa non risponde, riprova fra poco", "rete")
+    return {"esito": "non_trovato", "domande": len(domande)}
+
+
+def geocode_conferma(conn, ws, loc_id, body=None):
+    """Salva il punto trovato dalla ricerca avanzata, dopo che chi guarda
+    la scheda ha detto che e' giusto. E' una strada trovata davvero, non il
+    centro del paese: "preciso", come lo segna la ricerca normale."""
+    body = body or {}
+    try:
+        lat, lng = float(body.get("lat")), float(body.get("lng"))
+    except (TypeError, ValueError):
+        raise ApiError(400, "Coordinate non valide")
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        raise ApiError(400, "Coordinate non valide")
+    cur = conn.execute(
+        "UPDATE locations SET lat = ?, lng = ?, geo_precision = 'preciso', updated_at = ? "
+        "WHERE id = ? AND workspace_id = ?", (lat, lng, now_iso(), loc_id, ws))
+    if not cur.rowcount:
+        raise ApiError(404, "Palco non trovato")
+    conn.commit()
+    return {"location": fetch_location(conn, ws, loc_id)}
+
+
+# --- palchi di partenza ------------------------------------------------
+#
+# Chi crea la sua prima band non trova l'app vuota (7 ottobre 2026, chiesto
+# da Stefano): gli si propongono i palchi della sua zona che le altre band
+# hanno gia' in rubrica. Una volta sola, alla creazione della band, e poi
+# mai piu': nessuna voce per richiamarlo.
+#
+# E' l'unico punto in cui un dato passa da una band all'altra, e passa solo
+# quello che e' pubblico — quello che chiunque trova sui social del locale:
+# nome, tipo, indirizzo, citta', coordinate, foto, sito, Facebook e
+# Instagram. Titolare, telefoni, email, note, stato, serate e art director
+# restano dove sono, e da quale band arriva un palco non si dice mai.
+#
+# Passano solo i palchi fatti bene: con la foto, l'indirizzo, la citta' e
+# la posizione precisa (non il centro citta'), e non archiviati. Lo stesso
+# locale in rubrica a piu' band si propone una volta sola, con la copia piu'
+# completa; ed e' proprio l'essere in piu' rubriche a metterlo in cima.
+
+PARTENZA_RAGGIO_PREDEFINITO = 40
+PARTENZA_MASSIMO_PREDEFINITO = 10
+# Le scelte che l'Admin ha nel foglio. Il massimo 0 vuol dire "tutti".
+PARTENZA_RAGGI = (10, 20, 30, 40, 50, 75, 100, 150)
+PARTENZA_MASSIMI = (5, 10, 20, 30, 50, 100, 0)
+# Due righe di band diverse sono lo stesso locale se stanno entro questi
+# metri e hanno un nome che si somiglia. Coordinate "precise" dello stesso
+# posto prese da due band cadono di solito a poche decine di metri.
+PARTENZA_STESSO_POSTO_KM = 0.1
+# I centri citta' gia' chiesti a Nominatim: una band nuova fa la stessa
+# domanda due volte (la lista, poi Carica) e non c'e' ragione di rifarla.
+_partenza_centri = {}
+
+
+def partenza_impostazioni(conn):
+    valori = {
+        r["key"]: r["value"] for r in conn.execute(
+            "SELECT key, value FROM app_settings WHERE key IN ('starter_radius_km', 'starter_max')"
+        ).fetchall()
+    }
+
+    def intero(chiave, predefinito, ammessi):
+        try:
+            n = int(valori.get(chiave))
+        except (TypeError, ValueError):
+            return predefinito
+        return n if n in ammessi else predefinito
+
+    return {
+        "radius_km": intero("starter_radius_km", PARTENZA_RAGGIO_PREDEFINITO, PARTENZA_RAGGI),
+        "max": intero("starter_max", PARTENZA_MASSIMO_PREDEFINITO, PARTENZA_MASSIMI),
+        "radius_choices": list(PARTENZA_RAGGI),
+        "max_choices": list(PARTENZA_MASSIMI),
+    }
+
+
+def set_partenza_impostazioni(conn, body, email):
+    body = body or {}
+    da_scrivere = []
+    for campo, chiave, ammessi in (
+        ("radius_km", "starter_radius_km", PARTENZA_RAGGI),
+        ("max", "starter_max", PARTENZA_MASSIMI),
+    ):
+        if campo not in body:
+            continue
+        try:
+            n = int(body[campo])
+        except (TypeError, ValueError):
+            raise ApiError(400, "Valore non valido")
+        if n not in ammessi:
+            raise ApiError(400, "Valore non valido")
+        da_scrivere.append((chiave, str(n)))
+    ts = now_iso()
+    for chiave, valore in da_scrivere:
+        conn.execute(
+            "INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, "
+            "updated_at = excluded.updated_at",
+            (chiave, valore, email, ts),
+        )
+    conn.commit()
+    if da_scrivere:
+        registra("admin_palchi_zona", email, **{k: v for k, v in da_scrivere})
+    return partenza_impostazioni(conn)
+
+
+def partenza_in_attesa(conn, ws, email):
+    """Vero se a questa persona, in questa band, la domanda va ancora fatta:
+    la band e' nata dal wizard, l'ha creata lei, e nessuno ha ancora
+    risposto."""
+    if not ws:
+        return False
+    row = conn.execute(
+        "SELECT created_by, starter_offered_at FROM workspaces WHERE id = ?", (ws,)
+    ).fetchone()
+    if not row or row["starter_offered_at"]:
+        return False
+    return (not email) or row["created_by"] == email
+
+
+def partenza_chiudi(conn, ws):
+    """La domanda e' stata fatta: da qui in poi non torna, qualunque sia
+    stata la risposta."""
+    conn.execute(
+        "UPDATE workspaces SET starter_offered_at = ? WHERE id = ? AND starter_offered_at IS NULL",
+        (now_iso(), ws),
+    )
+    conn.commit()
+
+
+def partenza_centro(city):
+    """Il centro della citta' della band, da cui si misura il raggio. Torna
+    None se Nominatim non risponde o non la trova."""
+    _domande, domanda_citta, nomi = geo_candidates(None, None, city)
+    if not domanda_citta:
+        return None
+    if domanda_citta in _partenza_centri:
+        return _partenza_centri[domanda_citta]
+    try:
+        punto, _incerto = geo_centro(geo_lookup(domanda_citta), nomi)
+    except Exception:
+        return None
+    if punto:
+        _partenza_centri[domanda_citta] = punto
+    return punto
+
+
+def _partenza_nome(nome):
+    return " ".join(_parole_semplici(nome))
+
+
+def _partenza_stesso_nome(a, b):
+    """"Bagno 42 da Gino" e "Bagno 42": per due righe gia' a pochi metri
+    l'una dall'altra basta che un nome contenga l'altro, o che si somiglino
+    parecchio."""
+    if not a or not b:
+        return False
+    if a == b or a in b or b in a:
+        return True
+    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.75
+
+
+def partenza_candidati(conn, ws, centro, raggio_km):
+    """I palchi delle altre band entro il raggio, gia' filtrati e accorpati.
+    Ogni voce e' la copia migliore di quel locale, con quante band ce
+    l'hanno e quanto dista. In ordine: prima quelli in piu' rubriche, poi i
+    piu' vicini."""
+    lat0, lng0 = centro
+    dlat = raggio_km / 111.0
+    dlng = raggio_km / (111.0 * max(math.cos(math.radians(lat0)), 0.01))
+    righe = conn.execute(
+        """
+        SELECT l.id, l.workspace_id, l.name, l.type, l.address, l.locality, l.city,
+               l.lat, l.lng, l.website, l.facebook, l.instagram,
+               (SELECT p.filename FROM photos p WHERE p.location_id = l.id
+                ORDER BY p.is_cover DESC, p.id ASC LIMIT 1) AS foto
+        FROM locations l
+        JOIN workspaces w ON w.id = l.workspace_id
+        WHERE l.workspace_id != ?
+          AND l.deleted_at IS NULL AND l.status != 'archiviato'
+          AND l.geo_precision = 'preciso'
+          AND l.lat BETWEEN ? AND ? AND l.lng BETWEEN ? AND ?
+          AND TRIM(COALESCE(l.address, '')) != '' AND TRIM(COALESCE(l.city, '')) != ''
+          AND EXISTS (SELECT 1 FROM photos p WHERE p.location_id = l.id)
+        """,
+        (ws, lat0 - dlat, lat0 + dlat, lng0 - dlng, lng0 + dlng),
+    ).fetchall()
+
+    def completezza(r):
+        return sum(1 for c in ("type", "locality", "website", "facebook", "instagram")
+                   if (r[c] or "").strip())
+
+    candidati = []
+    for r in righe:
+        km = geo_distanza_km(lat0, lng0, r["lat"], r["lng"])
+        # Una foto che sul disco non c'e' piu' non si puo' copiare, e un
+        # palco senza foto non passa il filtro.
+        if km > raggio_km or not os.path.isfile(os.path.join(PHOTOS_DIR, r["foto"] or "")):
+            continue
+        candidati.append((r, km))
+    candidati.sort(key=lambda c: (-completezza(c[0]), c[0]["id"]))
+
+    # Quello che la band ha gia' non si propone: oggi la band nuova e'
+    # vuota, ma potrebbe aver scritto un palco prima di rispondere.
+    gia_suoi = [
+        (r["lat"], r["lng"], _partenza_nome(r["name"])) for r in conn.execute(
+            "SELECT name, lat, lng FROM locations WHERE workspace_id = ? AND deleted_at IS NULL "
+            "AND lat IS NOT NULL AND lng IS NOT NULL", (ws,)
+        ).fetchall()
+    ]
+
+    gruppi = []
+    for r, km in candidati:
+        nome = _partenza_nome(r["name"])
+        if any(geo_distanza_km(lat, lng, r["lat"], r["lng"]) <= PARTENZA_STESSO_POSTO_KM
+               and _partenza_stesso_nome(nome, n) for lat, lng, n in gia_suoi):
+            continue
+        for g in gruppi:
+            m = g["riga"]
+            if (geo_distanza_km(m["lat"], m["lng"], r["lat"], r["lng"]) <= PARTENZA_STESSO_POSTO_KM
+                    and _partenza_stesso_nome(g["nome"], nome)):
+                g["band"].add(r["workspace_id"])
+                break
+        else:
+            gruppi.append({"riga": r, "nome": nome, "km": km, "band": {r["workspace_id"]}})
+    gruppi.sort(key=lambda g: (-len(g["band"]), g["km"]))
+    return gruppi
+
+
+def partenza_proposta(conn, ctx):
+    """Cosa mostrare alla band appena creata. Se nella zona non c'e' niente
+    la domanda si chiude qui, senza mai comparire: dire "ci sono 0 palchi"
+    a chi e' appena arrivato fa l'effetto contrario."""
+    ws = require_ws(ctx)
+    imp = partenza_impostazioni(conn)
+    vuota = {"pending": False, "total": 0, "venues": [],
+             "radius_km": imp["radius_km"], "max": imp["max"]}
+    if not partenza_in_attesa(conn, ws, ctx.email):
+        return vuota
+    city = conn.execute("SELECT city FROM workspaces WHERE id = ?", (ws,)).fetchone()["city"]
+    # Prima di aspettare Nominatim si chiude la transazione aperta da
+    # touch_last_seen: tenuta aperta durante la domanda, blocca le scritture
+    # delle altre richieste che l'app manda all'avvio ("database is locked").
+    conn.commit()
+    centro = partenza_centro(city)
+    if not centro:
+        # La mappa non risponde: la domanda resta in sospeso e si riprova
+        # alla prossima apertura, invece di bruciarla per un guasto di rete.
+        return vuota
+    gruppi = partenza_candidati(conn, ws, centro, imp["radius_km"])
+    if not gruppi:
+        partenza_chiudi(conn, ws)
+        registra("palchi_zona", ctx.email, id=ws, esito="nessuno_in_zona", citta=city)
+        return vuota
+    proposti = gruppi[:imp["max"]] if imp["max"] else gruppi
+    return {
+        "pending": True,
+        "total": len(gruppi),
+        "radius_km": imp["radius_km"],
+        "max": imp["max"],
+        "venues": [
+            {
+                "id": g["riga"]["id"], "name": g["riga"]["name"], "type": g["riga"]["type"],
+                "city": g["riga"]["city"], "km": round(g["km"], 1),
+                "photo": "/photos/" + g["riga"]["foto"],
+            }
+            for g in proposti
+        ],
+    }
+
+
+def partenza_tipo(conn, ws, tipo, ws_origine):
+    """Il tipo del palco copiato, nella lista della band nuova. Se la band
+    non ce l'ha lo aggiunge, con l'icona che ha nella band d'origine: senza,
+    il palco arriverebbe con un tipo che nessun foglio sa mostrare."""
+    tipo = (tipo or "").strip()
+    if not tipo:
+        return None
+    gia = conn.execute(
+        "SELECT name FROM venue_types WHERE LOWER(name) = LOWER(?) AND workspace_id = ?", (tipo, ws)
+    ).fetchone()
+    if gia:
+        return gia["name"]
+    icona = conn.execute(
+        "SELECT icon FROM venue_types WHERE LOWER(name) = LOWER(?) AND workspace_id = ?",
+        (tipo, ws_origine),
+    ).fetchone()
+    conn.execute(
+        "INSERT INTO venue_types (name, workspace_id, icon, created_at) VALUES (?, ?, ?, ?)",
+        (tipo, ws, icona["icon"] if icona else icona_per_tipologia(tipo), now_iso()),
+    )
+    return tipo
+
+
+def partenza_carica(conn, ctx, body):
+    """Copia i palchi scelti nella band nuova e chiude la domanda. Gli id
+    arrivano dal telefono, quindi si copia solo quello che la proposta di
+    adesso contiene davvero: un id qualunque non apre la rubrica di
+    un'altra band. Una lista vuota vuol dire "No, grazie"."""
+    ws = require_ws(ctx)
+    require_writer(conn, ctx)
+    if not partenza_in_attesa(conn, ws, ctx.email):
+        raise ApiError(409, "I palchi della zona si possono caricare solo una volta, alla creazione della band")
+    try:
+        scelti = {int(i) for i in ((body or {}).get("ids") or [])}
+    except (TypeError, ValueError):
+        raise ApiError(400, "Scelta non valida")
+    if not scelti:
+        partenza_chiudi(conn, ws)
+        registra("palchi_zona", ctx.email, id=ws, esito="rifiutati")
+        return {"loaded": 0}
+    proposta = partenza_proposta(conn, ctx)
+    if not proposta["venues"]:
+        raise ApiError(502, "La mappa non risponde, riprova fra poco", "rete")
+    ammessi = [v["id"] for v in proposta["venues"] if v["id"] in scelti]
+    if not ammessi:
+        raise ApiError(400, "Questi palchi non sono fra quelli proposti")
+
+    ts = now_iso()
+    caricati = 0
+    for loc_id in ammessi:
+        r = conn.execute(
+            "SELECT workspace_id, name, type, address, locality, city, lat, lng, "
+            "website, facebook, instagram FROM locations WHERE id = ?", (loc_id,)
+        ).fetchone()
+        foto = conn.execute(
+            "SELECT filename FROM photos WHERE location_id = ? ORDER BY is_cover DESC, id ASC LIMIT 1",
+            (loc_id,),
+        ).fetchone()
+        if not r or not foto:
+            continue
+        try:
+            with open(os.path.join(PHOTOS_DIR, foto["filename"]), "rb") as f:
+                raw = f.read()
+        except OSError:
+            continue
+        cur = conn.execute(
+            "INSERT INTO locations (name, type, address, locality, city, lat, lng, geo_precision, "
+            "website, facebook, instagram, status, owner_email, workspace_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'preciso', ?, ?, ?, ?, ?, ?, ?, ?)",
+            (r["name"], partenza_tipo(conn, ws, r["type"], r["workspace_id"]), r["address"],
+             r["locality"], r["city"], r["lat"], r["lng"], r["website"], r["facebook"],
+             r["instagram"], LEAD_STATUS, ctx.email, ws, ts, ts),
+        )
+        ext = foto["filename"].rsplit(".", 1)[-1].lower()
+        salva_foto(conn, cur.lastrowid, raw, ext if ext in PHOTO_EXT_CONTENT_TYPE else "jpg", copertina=True)
+        caricati += 1
+    partenza_chiudi(conn, ws)
+    registra("palchi_zona", ctx.email, id=ws, esito="caricati", caricati=caricati,
+             proposti=len(proposta["venues"]), in_zona=proposta["total"])
+    return {"loaded": caricati}
 
 
 DATA_URL_RE = re.compile(r"^data:image/(\w+);base64,(.+)$", re.S)
@@ -5687,6 +6538,14 @@ IG_OG_TITLE_RE = re.compile(r'<meta[^>]+property="og:title"[^>]+content="([^"]+)
 IG_MAX_CANDIDATI = 6
 IG_CERCA_TIMEOUT = 12
 IG_OG_RE = re.compile(r'<meta[^>]+property="og:image"[^>]+content="([^"]+)"')
+# La descrizione che Instagram mette nella pagina, la stessa che Google mostra
+# sotto il titolo: '781 Followers, 1,641 Following, 96 Posts - Nome (@utente)
+# on Instagram: "la bio"'. Dai numeri si capisce un profilo vuoto (0 post),
+# dalla bio se e' proprio quel locale (3 ottobre 2026).
+# Gli attributi arrivano in un ordine qualunque (oggi content prima di name).
+IG_DESC_RE = re.compile(
+    r'<meta(?=[^>]*\bname="description")[^>]*\bcontent="([^"]*)"')
+IG_DESC_NUMERI_RE = re.compile(r'^([\d.,]+[KkMm]?)\s+Followers?,\s*[\d.,]+[KkMm]?\s+Following,\s*([\d.,]+[KkMm]?)\s+Posts?')
 FB_HOSTS = ("facebook.com", "fb.com", "fb.me")
 # Pezzi di indirizzo che stanno dentro facebook.com ma non sono una pagina:
 # una foto, un post, un video, un gruppo. Quello che si copia dalla barra
@@ -5845,7 +6704,18 @@ def _instagram_profilo(username, timeout=15):
     if trovato:
         # "Nome del locale (@nomeutente) \u2022 Instagram photos and videos"
         nome = html.unescape(trovato.group(1)).split("(@")[0].strip(" \u2022").strip()
-    return {"username": username, "url": IG_PROFILE_URL % username, "nome": nome, "foto": foto}
+    follower = post = bio = ""
+    trovato = IG_DESC_RE.search(pagina)
+    if trovato:
+        descrizione = html.unescape(trovato.group(1))
+        numeri = IG_DESC_NUMERI_RE.match(descrizione)
+        if numeri:
+            follower, post = numeri.group(1), numeri.group(2)
+        if 'on Instagram: "' in descrizione:
+            bio = descrizione.split('on Instagram: "', 1)[1].rstrip().rstrip('"').strip()
+            bio = re.sub(r"\s+", " ", bio)[:200]
+    return {"username": username, "url": IG_PROFILE_URL % username, "nome": nome, "foto": foto,
+            "follower": follower, "post": post, "bio": bio}
 
 
 def _instagram_pic_url(username):
@@ -6554,9 +7424,12 @@ def delete_my_band(conn, ctx, ws_id):
     ).fetchone()["n"]
     if others:
         raise ApiError(400, "Ci sono altri membri in questa band: rimuovili prima di eliminarla")
+    nome = conn.execute("SELECT name FROM workspaces WHERE id = ?", (ws_id,)).fetchone()
     file_orfani = cancella_band(conn, ws_id)
     conn.commit()
     togli_file(file_orfani)
+    registra("band_eliminata", ctx.email, band=nome["name"] if nome else None, id=ws_id,
+             da="leader", foto=len(file_orfani))
 
 
 def cancella_band(conn, ws_id):
@@ -6686,6 +7559,7 @@ def delete_app_user(conn, ctx, email):
                     "location_favorites", "task_reminders", "user_profiles"):
         conn.execute(f"DELETE FROM {tabella} WHERE email = ?", (email,))
     conn.commit()
+    registra("utente_eliminato", ctx.email, utente=email, band_lasciate=len(sue))
 
 
 def copia_di_sicurezza(conn, motivo):
@@ -6693,12 +7567,39 @@ def copia_di_sicurezza(conn, motivo):
     cancellazione che dall'app non si puo' disfare. Stesso nome delle copie
     fatte a mano prima dei deploy: crm.db.bak.<motivo>.<data>."""
     nome = "%s.bak.%s.%s" % (DB_PATH, motivo, datetime.now().strftime("%Y%m%d%H%M%S"))
+    # Con una transazione aperta su questa connessione la copia non finisce
+    # mai (7 ottobre 2026: file da 0 byte e database bloccato per tutti).
+    conn.commit()
     dest = sqlite3.connect(nome)
     try:
         conn.backup(dest)
     finally:
         dest.close()
+    pota_copie_di_sicurezza()
     return nome
+
+
+def pota_copie_di_sicurezza(tenere=None):
+    """Elimina le copie crm.db.bak.* oltre le DB_BACKUP_RETENTION piu' recenti.
+    Si ordina per data di modifica e non per nome: i nomi delle copie fatte a
+    mano non hanno tutti la data nello stesso punto."""
+    tenere = DB_BACKUP_RETENTION if tenere is None else tenere
+    if tenere <= 0:
+        return []
+    cartella = os.path.dirname(DB_PATH)
+    prefisso = os.path.basename(DB_PATH) + ".bak."
+    copie = sorted(
+        (os.path.join(cartella, f) for f in os.listdir(cartella) if f.startswith(prefisso)),
+        key=os.path.getmtime, reverse=True,
+    )
+    eliminate = []
+    for vecchia in copie[tenere:]:
+        try:
+            os.remove(vecchia)
+            eliminate.append(vecchia)
+        except OSError:
+            pass
+    return eliminate
 
 
 def delete_app_band(conn, ctx, ws_id):
@@ -6720,10 +7621,13 @@ def delete_app_band(conn, ctx, ws_id):
             "La band ha ancora %d %s: si elimina solo quando è vuota"
             % (n, "componente" if n == 1 else "componenti"),
         )
-    copia_di_sicurezza(conn, "pre-elimina-band")
+    nome = conn.execute("SELECT name FROM workspaces WHERE id = ?", (ws_id,)).fetchone()["name"]
+    copia = copia_di_sicurezza(conn, "pre-elimina-band")
     file_orfani = cancella_band(conn, ws_id)
     conn.commit()
     togli_file(file_orfani)
+    registra("band_eliminata", ctx.email, band=nome, id=ws_id, da="admin",
+             foto=len(file_orfani), copia=os.path.basename(copia))
 
 
 def switch_workspace(conn, ctx, ws_id):
@@ -7251,6 +8155,7 @@ def create_report(conn, ctx, body):
     )
     conn.commit()
     creata = _report_rows(conn, "WHERE r.id = ?", (cur.lastrowid,))[0]
+    registra("segnalazione", ctx.email, id=cur.lastrowid, tipo=kind, build=build)
     # Dopo il commit, e senza che un errore possa far fallire la richiesta:
     # la segnalazione e' salva anche se la notifica non parte.
     try:
@@ -7414,11 +8319,11 @@ def export_zip(conn):
 
     fogli.append(("palchi.csv", _csv_bytes(
         ["id", "band", "nome", "tipo", "categoria", "contesto", "stagionalita", "periodo",
-         "citta", "indirizzo", "lat", "lng", "capienza", "genere", "titolare", "telefono",
+         "citta", "indirizzo", "localita", "lat", "lng", "capienza", "genere", "titolare", "telefono",
          "cellulare", "email", "sito", "facebook", "instagram", "art_director", "stato", "data_prossimo_contatto",
          "mesi_programmazione", "promemoria", "inserito_da", "archiviato_il", "creato_il", "aggiornato_il"],
         [(r["id"], r["band"], r["name"], r["type"], r["category"], r["context"], r["seasonality"],
-          r["live_period"], r["city"], r["address"], r["lat"], r["lng"], r["capacity"], r["genre"],
+          r["live_period"], r["city"], r["address"], r["locality"], r["lat"], r["lng"], r["capacity"], r["genre"],
           r["contact_name"], r["landline"], r["phone"], r["email"], r["website"],
           r["facebook"], r["instagram"], r["ad"],
           r["status"], r["next_contact_date"], r["programming_months"], r["planning_note"],
@@ -7648,6 +8553,14 @@ def _h_add_note(conn, match, query, body, ctx):
 
 def _h_geocode_location(conn, match, query, body, ctx):
     return 200, geocode_location(conn, require_ws(ctx), int(match.group(1)), body)
+
+
+def _h_geocode_avanzata(conn, match, query, body, ctx):
+    return 200, geocode_avanzata(conn, require_ws(ctx), int(match.group(1)), body)
+
+
+def _h_geocode_conferma(conn, match, query, body, ctx):
+    return 200, geocode_conferma(conn, require_ws(ctx), int(match.group(1)), body)
 
 
 def _h_my_favorites(conn, match, query, body, ctx):
@@ -7893,6 +8806,11 @@ def _h_delete_app_user(conn, match, query, body, ctx):
     return 200, fetch_app_users(conn, ctx)
 
 
+def _h_registro(conn, match, query, body, ctx):
+    require_admin(ctx)
+    return 200, leggi_registro(conn, (query.get("file") or [None])[0])
+
+
 def _h_app_bands(conn, match, query, body, ctx):
     require_admin(ctx)
     return 200, fetch_app_bands(conn)
@@ -8099,6 +9017,24 @@ def _h_telegram_set(conn, match, query, body, ctx):
     return 200, set_telegram_admin(conn, bool((body or {}).get("on")), ctx.email)
 
 
+def _h_partenza_impostazioni(conn, match, query, body, ctx):
+    require_admin(ctx)
+    return 200, partenza_impostazioni(conn)
+
+
+def _h_partenza_set(conn, match, query, body, ctx):
+    require_admin(ctx)
+    return 200, set_partenza_impostazioni(conn, body, ctx.email)
+
+
+def _h_partenza_proposta(conn, match, query, body, ctx):
+    return 200, partenza_proposta(conn, ctx)
+
+
+def _h_partenza_carica(conn, match, query, body, ctx):
+    return 200, partenza_carica(conn, ctx, body)
+
+
 def _h_promemoria_stato(conn, match, query, body, ctx):
     require_admin(ctx)
     return 200, promemoria_stato(conn)
@@ -8198,6 +9134,8 @@ ROUTES = [
     ("POST", re.compile(r"^/api/locations/(\d+)/photos/social$"), _h_social_cover),
     ("POST", re.compile(r"^/api/locations/(\d+)/social/instagram$"), _h_instagram_cerca),
     ("POST", re.compile(r"^/api/locations/(\d+)/geocode$"), _h_geocode_location),
+    ("POST", re.compile(r"^/api/locations/(\d+)/geocode/avanzata$"), _h_geocode_avanzata),
+    ("POST", re.compile(r"^/api/locations/(\d+)/geocode/conferma$"), _h_geocode_conferma),
     # La stella sta fuori dal palco perche' e' di chi la mette: ha una
     # rotta sua, ed e' l'unica cosa che l'app chiede "per me". I tag invece
     # arrivano dentro il palco — sono della band — e qui hanno solo i
@@ -8254,11 +9192,16 @@ ROUTES = [
     ("GET", re.compile(r"^/api/admin/users$"), _h_app_users),
     ("POST", re.compile(r"^/api/admin/users/delete$"), _h_delete_app_user),
     ("GET", re.compile(r"^/api/admin/bands$"), _h_app_bands),
+    ("GET", re.compile(r"^/api/admin/registro$"), _h_registro),
     ("DELETE", re.compile(r"^/api/admin/bands/(\d+)$"), _h_delete_app_band),
     ("GET", re.compile(r"^/api/admin/push/people$"), _h_push_people),
     ("GET", re.compile(r"^/api/admin/telegram$"), _h_telegram_stato),
     ("PUT", re.compile(r"^/api/admin/telegram$"), _h_telegram_set),
     ("POST", re.compile(r"^/api/admin/push/test$"), _h_push_test),
+    ("GET", re.compile(r"^/api/admin/partenza$"), _h_partenza_impostazioni),
+    ("PUT", re.compile(r"^/api/admin/partenza$"), _h_partenza_set),
+    ("GET", re.compile(r"^/api/partenza$"), _h_partenza_proposta),
+    ("POST", re.compile(r"^/api/partenza$"), _h_partenza_carica),
     ("GET", re.compile(r"^/api/admin/promemoria$"), _h_promemoria_stato),
     ("PUT", re.compile(r"^/api/admin/promemoria$"), _h_promemoria_set),
     ("POST", re.compile(r"^/api/admin/promemoria/run$"), _h_promemoria_run),
@@ -8282,6 +9225,17 @@ ROUTES = [
     ("PUT", re.compile(r"^/api/venue_lists/([a-z_]+)/(\d+)$"), _h_update_venue_list_value),
     ("DELETE", re.compile(r"^/api/venue_lists/([a-z_]+)/(\d+)$"), _h_delete_venue_list_value),
 ]
+
+
+LOGIN_GOOGLE_BTN = """<a class="btn" href="/auth/google">
+      <svg width="18" height="18" viewBox="0 0 48 48">
+        <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/>
+        <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 16 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
+        <path fill="#4CAF50" d="M24 44c5.2 0 10.1-2 13.7-5.3l-6.3-5.3C29.4 35.1 26.8 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
+        <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.2 5.7l6.3 5.3C39.9 37 44 31 44 24c0-1.3-.1-2.7-.4-3.5z"/>
+      </svg>
+      Accedi con Google
+    </a>"""
 
 
 LOGIN_PAGE_TEMPLATE = """<!doctype html>
@@ -8377,6 +9331,13 @@ LOGIN_PAGE_TEMPLATE = """<!doctype html>
     transition:transform .15s;}
   a.btn:active{transform:scale(.97);}
   a.btn svg{flex:none;}
+  .interno{text-align:left;font-size:14px;line-height:1.45;color:var(--ink);}
+  .interno h2{font-size:16px;margin:0 0 6px;}
+  .interno p{margin:0 0 12px;color:var(--ink-dim);}
+  .interno ol{margin:0 0 14px;padding-left:20px;}
+  .interno ol li{margin-bottom:4px;}
+  .interno .copia{margin-top:10px;background:transparent;color:var(--ink);border:1px solid rgba(255,255,255,.35);}
+  .interno .link{font-size:12px;color:var(--ink-dim);word-break:break-all;margin-top:8px;}
   @media (prefers-reduced-motion:reduce){
     .beam,.spark,.band-figures,.drumstick,.guitar-neck,.mic-arm,.eq span{animation:none !important;}
   }
@@ -8432,15 +9393,7 @@ LOGIN_PAGE_TEMPLATE = """<!doctype html>
     <div class="brand">MIOPALCO</div>
     <p class="tagline">Il gestionale live della tua band</p>
     __MSG__
-    <a class="btn" href="/auth/google">
-      <svg width="18" height="18" viewBox="0 0 48 48">
-        <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/>
-        <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 16 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
-        <path fill="#4CAF50" d="M24 44c5.2 0 10.1-2 13.7-5.3l-6.3-5.3C29.4 35.1 26.8 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
-        <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.2 5.7l6.3 5.3C39.9 37 44 31 44 24c0-1.3-.1-2.7-.4-3.5z"/>
-      </svg>
-      Accedi con Google
-    </a>
+    __AZIONE__
   </div>
 </body>
 </html>"""
@@ -8563,13 +9516,70 @@ class Handler(BaseHTTPRequestHandler):
             ]
         )
         eqbars = "".join(f'<span style="animation-delay:{i * 0.09}s"></span>' for i in range(28))
-        body = LOGIN_PAGE_TEMPLATE.replace("__MSG__", msg).replace("__SPARKS__", sparks).replace("__EQBARS__", eqbars)
+        interno = browser_interno(self.headers.get("User-Agent"))
+        azione = self._uscita_dal_browser_interno(interno) if interno else LOGIN_GOOGLE_BTN
+        if interno:
+            msg = ""
+        body = (LOGIN_PAGE_TEMPLATE.replace("__MSG__", msg).replace("__SPARKS__", sparks)
+                .replace("__EQBARS__", eqbars).replace("__AZIONE__", azione))
         body_bytes = body.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body_bytes)))
         self.end_headers()
         self.wfile.write(body_bytes)
+
+    def _uscita_dal_browser_interno(self, app_nome):
+        """Al posto di «Accedi con Google», dentro Facebook e simili: come
+        aprire la stessa pagina nel browser vero. Su Android un indirizzo
+        intent:// la passa al browser predefinito, qualunque sia (Chrome,
+        Opera, Brave...); su iPhone una pagina non puo' farlo, e restano le
+        istruzioni e il link da copiare."""
+        host = self.headers.get("Host", "miopalco.com")
+        percorso = self.path if self.path.startswith("/") else "/login"
+        indirizzo = "https://" + host + percorso
+        e_ios = sistema_di(self.headers.get("User-Agent")) == "iOS"
+        testa = f'<h2>Sei nel browser di {html.escape(app_nome)}</h2>'
+        if e_ios:
+            passi = (
+                '<p>Per entrare apri MioPalco nel browser:</p>'
+                '<ol><li>Tocca <b>⋯</b> in alto a destra</li>'
+                '<li>Scegli <b>Apri nel browser</b></li></ol>'
+                f'<a class="btn copia" href="#" id="copiaLink" data-link="{html.escape(indirizzo)}">Copia il link</a>'
+                '<script>document.getElementById("copiaLink").addEventListener("click",function(e){'
+                'e.preventDefault();var a=this,l=a.getAttribute("data-link");'
+                'var ok=function(){a.textContent="Copiato: incollalo nel browser";};'
+                'if(navigator.clipboard){navigator.clipboard.writeText(l).then(ok,function(){prompt("Copia il link",l);});}'
+                'else{prompt("Copia il link",l);}});</script>'
+            )
+        else:
+            intent = "intent://" + host + percorso + "#Intent;scheme=https;end"
+            passi = (
+                f'<a class="btn" href="{html.escape(intent)}">Apri MioPalco</a>'
+                '<p style="margin:12px 0 0;font-size:13px;">Non si apre? Tocca <b>⋮</b> in alto a destra '
+                'e scegli <b>Apri nel browser</b>.</p>'
+            )
+        return '<div class="interno">' + testa + passi + '</div>'
+
+    def _registra_visita(self, pagina):
+        """Chi apre la landing o la pagina di accesso, senza sessione. Serve a
+        sapere se un link condiviso e' stato aperto e dove si sono fermati:
+        landing, pagina di accesso, partenza per Google, registrazione."""
+        ua = self.headers.get("User-Agent")
+        if e_un_robot(ua):
+            return
+        query = parse_qs(urlparse(self.path).query)
+        da = None
+        if "fbclid" in query:
+            da = "facebook"
+        elif "igshid" in query:
+            da = "instagram"
+        else:
+            ref = urlparse(self.headers.get("Referer") or "").hostname or ""
+            if ref and ref != (self.headers.get("Host") or "").split(":")[0]:
+                da = ref
+        registra("visita", pagina=pagina, browser=browser_interno(ua),
+                 sistema=sistema_di(ua), da=da)
 
     def _send_landing(self):
         try:
@@ -8580,6 +9590,7 @@ class Handler(BaseHTTPRequestHandler):
         # Su GitHub Pages il manifest non c'e'. Qui serve: e' quello che fa
         # installare a Chrome l'app vera invece di una scorciatoia al sito.
         body = body.replace("</head>", '<link rel="manifest" href="/manifest.json?v=2">\n</head>', 1)
+        self._registra_visita("landing")
         body_bytes = body.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -8619,6 +9630,7 @@ class Handler(BaseHTTPRequestHandler):
                 if email:
                     self._send_redirect("/")
                     return True
+            self._registra_visita("accesso")
             self._send_login_page()
             return True
 
@@ -8626,6 +9638,16 @@ class Handler(BaseHTTPRequestHandler):
             if not auth_enabled():
                 self._send_json(503, {"error": "Login con Google non configurato"})
                 return True
+            # Dal browser di Facebook e simili Google rifiuta: invece di
+            # mandarcelo, la pagina di accesso spiega come uscirne. Il link
+            # da aprire fuori e' questo stesso, invito compreso.
+            ua = self.headers.get("User-Agent")
+            if browser_interno(ua):
+                self._registra_visita("google_da_browser_interno")
+                self._send_login_page()
+                return True
+            if not e_un_robot(ua):
+                registra("verso_google", browser=browser_interno(ua), sistema=sistema_di(ua))
             # Il cookie dell'invito e' la strada normale, ma e' anche l'unica
             # cosa che puo' non tornare indietro dal giro su Google (browser
             # che li limitano, app installata che apre il link in un'altra
@@ -8691,6 +9713,8 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 # Per ultimo: cosi' chi entra con un invito si porta gia'
                 # dietro la band nel messaggio.
+                registra("registrazione" if primo_accesso else "accesso", email,
+                         band=banda_di(conn, email), invito="si" if invite_token else None)
                 notify_login(conn, email, primo_accesso)
             finally:
                 conn.close()
@@ -8740,7 +9764,13 @@ class Handler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/logout":
             conn = get_conn()
             try:
-                delete_session(conn, self._cookie(SESSION_COOKIE))
+                sessione = self._cookie(SESSION_COOKIE)
+                riga = conn.execute(
+                    "SELECT email FROM sessions WHERE id = ?", (sessione,)
+                ).fetchone() if sessione else None
+                if riga:
+                    registra("uscita", riga["email"])
+                delete_session(conn, sessione)
             finally:
                 conn.close()
             self._send_redirect("/login", clear_cookie=SESSION_COOKIE)
@@ -8991,6 +10021,7 @@ class Handler(BaseHTTPRequestHandler):
             match = pattern.match(path)
             if not match:
                 continue
+            email = None
             try:
                 body = self._read_json_body() if method in ("POST", "PUT") else {}
                 conn = get_conn()
@@ -9008,6 +10039,8 @@ class Handler(BaseHTTPRequestHandler):
             except ApiError as e:
                 self._send_json(e.status, _errore_json(e))
             except Exception as e:  # pragma: no cover - safety net
+                registra("errore", email, dettaglio=traceback.format_exc(),
+                         richiesta="%s %s" % (method, path), messaggio=e)
                 self._send_json(500, {"error": f"Errore interno: {e}"})
             return
 
@@ -9049,6 +10082,8 @@ def main():
     finally:
         conn.close()
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    # Nel registro si vedono anche i deploy: ogni avvio con la sua build.
+    registra("avvio", build=build_label(), impronta=build_version())
     avvia_promemoria()
     print("Palchi CRM avviato.")
     # Scritto all'avvio perche' e' l'unico modo di sapere da fuori se sono
