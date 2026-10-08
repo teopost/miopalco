@@ -3817,11 +3817,25 @@
   function vaiDaHome(el){
     var pezzi = (el.getAttribute("data-vai") || "").split(":");
     if(!pezzi[0]) return;
-    apriTab(pezzi[0]);
+    /* 8 ottobre 2026: su iPhone, arrivati in Agenda da qui l'app diventava
+       lentissima fino al riavvio, mentre dalla tabbar no. Il percorso ora
+       e' lo stesso della tabbar: la mattonella toccata perde il fuoco
+       (con tabindex Safari gliel'aveva dato, e restava su un elemento che
+       spariva), la Home smette di scorrere per inerzia prima di essere
+       nascosta, e l'Agenda si disegna una volta sola, gia' sulla vista
+       giusta, invece di due di fila con lo scroll rimesso in cima a
+       schermata appena accesa. */
+    if(el.blur) el.blur();
+    var sh = document.getElementById("scrollHome");
+    sh.scrollTop = sh.scrollTop;
     // Il terzo pezzo e' il filtro dei compiti: la mattonella dei miei apre
     // Agenda › Compiti gia' su «I miei compiti».
     if(pezzi[2]) tasksFiltro = pezzi[2];
-    if(pezzi[1]) setAgendaView(pezzi[1]);
+    if(pezzi[1]){
+      mostraAgendaView(pezzi[1]);
+      document.getElementById("scrollRecontact").scrollTop = 0;
+    }
+    apriTab(pezzi[0]);
   }
   document.getElementById("homeContent").addEventListener("click", function(e){
     var t = e.target.closest("[data-vai]");
@@ -5972,7 +5986,9 @@
      restano a un tocco. */
   var agendaView = "tasks";
 
-  function setAgendaView(v){
+  // Solo lo stato e i segmenti, senza disegnare: la usa anche la Home,
+  // che poi apre il tab e lascia a lui il disegno.
+  function mostraAgendaView(v){
     // Uscire dai Compiti chiude quello che era aperto li' dentro: un form a
     // meta' sotto un altro elenco non lo ritrova piu' nessuno, e la bozza
     // non e' ancora niente finche' non la salvi.
@@ -5987,6 +6003,9 @@
     document.getElementById("agendaPanePianif").hidden = agendaView !== "pianif";
     document.getElementById("agendaPaneTasks").hidden = agendaView !== "tasks";
     document.getElementById("agendaPaneGigs").hidden = agendaView !== "gigs";
+  }
+  function setAgendaView(v){
+    mostraAgendaView(v);
     renderRecontact();
     document.getElementById("scrollRecontact").scrollTop = 0;
   }
