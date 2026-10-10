@@ -6109,6 +6109,98 @@ def geocode_conferma(conn, ws, loc_id, body=None):
     return {"location": fetch_location(conn, ws, loc_id)}
 
 
+# --- isocrona -----------------------------------------------------------
+#
+# Sulla mappa, intorno a dove sei, al posto del cerchio puo' esserci
+# l'area che raggiungi in auto in un certo tempo (8 ottobre 2026, chiesto da
+# Stefano): a una band interessa quanto si guida, non la distanza in linea
+# d'aria. Leaflet la disegna ma non la sa calcolare: la chiede a un servizio
+# di percorsi.
+#
+# Di base e' Valhalla di FOSSGIS, sui dati OSM della mappa, senza chiave.
+# E' un servizio di volontari: chiede di dire chi sei e di non fare raffiche,
+# per questo c'e' il freno e la cache. Se nel .env c'e' ORS_API_KEY si usa
+# OpenRouteService al suo posto, senza toccare altro.
+#
+# La posizione si arrotonda a 0,01 gradi (circa un chilometro): chi gira per
+# Cesenatico chiede sempre la stessa isocrona, e la trova pronta.
+ORS_API_KEY = os.environ.get("ORS_API_KEY", "").strip()
+VALHALLA_URL = "https://valhalla1.openstreetmap.de/isochrone"
+ORS_URL = "https://api.openrouteservice.org/v2/isochrones/driving-car"
+ISOCRONA_USER_AGENT = "MioPalco/1.0 (https://miopalco.com)"
+# Valhalla di FOSSGIS non va oltre l'ora ("Exceeded max time: 60").
+ISOCRONA_MINUTI = (15, 30, 45, 60)
+ISOCRONA_DURATA_CACHE = 7 * 24 * 3600
+ISOCRONA_CACHE_MAX = 500
+ISOCRONA_FRENO_SECONDI = 1.0
+_isocrona_cache = {}
+_isocrona_lock = threading.Lock()
+_isocrona_ultima = [0.0]
+
+
+def _isocrona_valhalla(lat, lng, minuti):
+    domanda = {
+        "locations": [{"lat": lat, "lon": lng}],
+        "costing": "auto",
+        "contours": [{"time": minuti}],
+        "polygons": True,
+        # Una sagoma meno minuziosa: a un'ora di strada nessuno guarda i
+        # cento metri, e il poligono pesa un decimo.
+        "generalize": 150,
+        "denoise": 0.5,
+    }
+    # quote e non urlencode: Valhalla non legge il "+" come spazio e
+    # rispondeva 400.
+    url = VALHALLA_URL + "?json=" + quote(json.dumps(domanda, separators=(",", ":")))
+    req = urllib.request.Request(url, headers={"User-Agent": ISOCRONA_USER_AGENT})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        dati = json.load(resp)
+    return dati["features"][0]["geometry"]
+
+
+def _isocrona_ors(lat, lng, minuti):
+    corpo = json.dumps({"locations": [[lng, lat]], "range": [minuti * 60]}).encode()
+    req = urllib.request.Request(ORS_URL, data=corpo, method="POST", headers={
+        "Authorization": ORS_API_KEY, "Content-Type": "application/json",
+        "User-Agent": ISOCRONA_USER_AGENT,
+    })
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        dati = json.load(resp)
+    return dati["features"][0]["geometry"]
+
+
+def isocrona(lat, lng, minuti, email=None):
+    try:
+        lat, lng, minuti = float(lat), float(lng), int(minuti)
+    except (TypeError, ValueError):
+        raise ApiError(400, "Posizione o tempo non validi")
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180) or minuti not in ISOCRONA_MINUTI:
+        raise ApiError(400, "Posizione o tempo non validi")
+    lat, lng = round(lat, 2), round(lng, 2)
+    chiave = (lat, lng, minuti)
+    adesso = time.time()
+    with _isocrona_lock:
+        pronta = _isocrona_cache.get(chiave)
+        if pronta and adesso - pronta[0] < ISOCRONA_DURATA_CACHE:
+            return {"geometry": pronta[1], "lat": lat, "lng": lng, "minuti": minuti}
+        attesa = ISOCRONA_FRENO_SECONDI - (time.monotonic() - _isocrona_ultima[0])
+        if attesa > 0:
+            time.sleep(attesa)
+        servizio = "openrouteservice" if ORS_API_KEY else "valhalla"
+        try:
+            geometria = (_isocrona_ors if ORS_API_KEY else _isocrona_valhalla)(lat, lng, minuti)
+        except Exception as exc:
+            registra("isocrona_errore", email, servizio=servizio, minuti=minuti, errore=str(exc)[:200])
+            raise ApiError(502, "Il servizio dei percorsi non risponde")
+        finally:
+            _isocrona_ultima[0] = time.monotonic()
+        if len(_isocrona_cache) >= ISOCRONA_CACHE_MAX:
+            for vecchia in sorted(_isocrona_cache, key=lambda k: _isocrona_cache[k][0])[:ISOCRONA_CACHE_MAX // 5]:
+                del _isocrona_cache[vecchia]
+        _isocrona_cache[chiave] = (adesso, geometria)
+    return {"geometry": geometria, "lat": lat, "lng": lng, "minuti": minuti}
+
+
 # --- palchi di partenza ------------------------------------------------
 #
 # Chi crea la sua prima band non trova l'app vuota (7 ottobre 2026, chiesto
@@ -8574,6 +8666,11 @@ def _h_geocode_conferma(conn, match, query, body, ctx):
     return 200, geocode_conferma(conn, require_ws(ctx), int(match.group(1)), body)
 
 
+def _h_isocrona(conn, match, query, body, ctx):
+    q = lambda k: (query.get(k) or [None])[0]
+    return 200, isocrona(q("lat"), q("lng"), q("minuti"), ctx.email)
+
+
 def _h_my_favorites(conn, match, query, body, ctx):
     return 200, my_favorites(conn, require_ws(ctx), ctx.email)
 
@@ -9147,6 +9244,7 @@ ROUTES = [
     ("POST", re.compile(r"^/api/locations/(\d+)/geocode$"), _h_geocode_location),
     ("POST", re.compile(r"^/api/locations/(\d+)/geocode/avanzata$"), _h_geocode_avanzata),
     ("POST", re.compile(r"^/api/locations/(\d+)/geocode/conferma$"), _h_geocode_conferma),
+    ("GET", re.compile(r"^/api/isocrona$"), _h_isocrona),
     # La stella sta fuori dal palco perche' e' di chi la mette: ha una
     # rotta sua, ed e' l'unica cosa che l'app chiede "per me". I tag invece
     # arrivano dentro il palco — sono della band — e qui hanno solo i

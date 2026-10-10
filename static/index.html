@@ -282,7 +282,7 @@
      nell'elenco: da lontano la mappa dice a che punto sei con ogni posto
      senza aprire niente. Il fill lo mette il singolo segnalino, qui non si
      fissa nessun colore o vincerebbe su quello. */
-  .map-pin-icon{background:none;border:none;}
+  .map-pin-icon{background:none;border:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;}
   .mpin{position:relative;width:32px;height:44px;}
   .mpin svg{display:block;}
   /* L'emoji sta sopra il cerchio bianco, non dentro l'SVG: come <text> ogni
@@ -295,6 +295,12 @@
   .type-icon-cell{flex:none;width:26px;text-align:center;font-size:19px;line-height:1;color:var(--text-tertiary);}
   .type-icon-big{font-size:24px;line-height:1;}
   .map-pin-popup{font-family:inherit;}
+  /* La finestrella di Leaflet e' bianca di suo, ma le righe dentro usano
+     i colori del tema: col tema scuro il testo bianco spariva sul bianco
+     (8 ottobre 2026, Stefano vedeva solo le icone). Fondo e testo li
+     prende dal tema anche lei. */
+  .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--bg-elevated);color:var(--text);box-shadow:0 3px 14px var(--shadow);}
+  .leaflet-container a.leaflet-popup-close-button{color:var(--text-secondary);}
   .map-pin-popup .mp-name{font-weight:700;font-size:15px;margin-bottom:4px;line-height:1.25;}
   .map-pin-popup .mp-sub{font-size:12px;color:var(--text-secondary);margin-bottom:6px;}
   .map-pin-popup .mp-badge{margin-bottom:8px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
@@ -334,6 +340,9 @@
   .admin-row .row-title{color:var(--destructive);}
   .section-footer code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:var(--fill);padding:1px 4px;border-radius:4px;}
   .map-user-dot{background:none;border:none;}
+  /* Il centro scelto a mano: una croce, perche' non e' un posto ne' sei
+     tu, e' solo il punto da cui si misura l'area. */
+  .map-centro-croce{background:none;border:none;pointer-events:none;}
   .map-user-dot i{display:block;width:16px;height:16px;border-radius:50%;background:#0a84ff;border:2.5px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.18),0 1px 4px rgba(0,0,0,.35);}
   /* la tabbar e' fixed sopra la mappa: alzo attribuzione e pulsante per non finirci sotto */
   .map-view .leaflet-bottom{bottom:calc(53px + env(safe-area-inset-bottom));}
@@ -366,6 +375,10 @@
      deve dire "sono io" senza che tu debba indovinare. */
   @keyframes mapPinFound{0%{transform:translateY(-16px);}55%{transform:translateY(0);}72%{transform:translateY(-6px);}100%{transform:translateY(0);}}
   .map-pin-icon.map-pin-found svg{animation:mapPinFound .6s ease-out;}
+  /* Il segnalino preso in mano: piu' grande e con l'ombra, cresce dalla
+     punta perche' la punta e' il punto che stai spostando. */
+  .mpin{transition:transform .15s ease-out;transform-origin:50% 100%;}
+  .map-pin-icon.map-pin-alzato .mpin{transform:scale(1.3);filter:drop-shadow(0 6px 6px rgba(0,0,0,.35));}
   /* la searchbar non e' piu' in cima allo scroll a fare da spazio: l'aria
      sopra la prima riga dell'elenco va rimessa qui. */
   #scrollList > #list{padding-top:8px;}
@@ -482,7 +495,7 @@
   .grouped-list > .swipe-row:not(:first-child) .row-content > .field-row{border-top:.5px solid var(--separator);}
   /* display:flex batte [hidden]: senza questa la riga del giorno resterebbe
      li' anche quando un mese non c'e'. */
-  .field-row[hidden]{display:none;}
+  .field-row[hidden],.row[hidden]{display:none;}
   .field-row label{flex:0 0 118px;font-size:16px;color:var(--text);}
   .field-row input, .field-row select{flex:1;min-width:0;border:none;background:transparent;font-size:16px;color:var(--text);text-align:right;padding:0;font-family:inherit;}
   .field-row input::placeholder{color:var(--text-tertiary);}
@@ -1714,6 +1727,27 @@
         </div>
       </div>
       <div class="section-footer">Il tema è memorizzato in questo browser, non nell'account: su un altro telefono o computer riparte da «Automatico», che segue l'impostazione del sistema.</div>
+      <div class="section-header">MAPPA</div>
+      <div class="grouped-list">
+        <div class="field-row">
+          <label for="areaIsocronaToggle" style="flex:1;">Area in tempo di guida</label>
+          <label class="ios-switch">
+            <input type="checkbox" id="areaIsocronaToggle">
+            <span class="ios-switch-track"><span class="ios-switch-thumb"></span></span>
+          </label>
+        </div>
+        <div class="row" id="rowAreaRaggio">
+          <div class="row-main"><div class="row-title">Raggio</div></div>
+          <div class="row-trail"><span id="areaRaggioValue" style="color:var(--text-secondary);font-size:15px;">50 km</span>
+          <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
+        </div>
+        <div class="row" id="rowAreaMinuti" hidden>
+          <div class="row-main"><div class="row-title">Tempo in auto</div></div>
+          <div class="row-trail"><span id="areaMinutiValue" style="color:var(--text-secondary);font-size:15px;">30 min</span>
+          <svg class="row-chevron" width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 7.5 7.5 1 14"/></svg></div>
+        </div>
+      </div>
+      <div class="section-footer">L’area disegnata sulla mappa intorno a dove sei. Spento è un cerchio del raggio scelto; acceso è la zona che raggiungi in auto nel tempo scelto, lungo le strade vere e a strade libere, senza traffico. Se il servizio dei percorsi non risponde torna il cerchio. Vale solo su questo dispositivo.</div>
       <div class="section-header">GESTI</div>
       <div class="grouped-list">
         <div class="field-row">
@@ -3385,7 +3419,7 @@
      proprio quelle che funzionano. */
   var API_ATTESA = 25000;
   var API_ATTESA_LUNGA = 90000;
-  var API_LENTE = /\/(photos|photo|geocode)(\/|$)|\/social\//;
+  var API_LENTE = /\/(photos|photo|geocode|isocrona)(\/|$|\?)|\/social\//;
 
   function api(method, path, body){
     var opts = {method:method, headers:{}};
@@ -4275,6 +4309,7 @@
   var sheetMultiSelect = false;
   var sheetHasSearch = false;
   var sheetDoneCallback = null;
+  var sheetCloseCallback = null;
 
   function openSheet(opts){
     // opts: {title?, titleDato?, searchable?, searchPlaceholder?, freeText?, onFreeText?, multiSelect?, onDone?, options:[{label, dato, value, color, checkmark, destructive}]}
@@ -4283,6 +4318,8 @@
     sheetFreeText = opts.freeText ? {onSelect: opts.onFreeText} : null;
     sheetMultiSelect = !!opts.multiSelect;
     sheetDoneCallback = opts.onDone || null;
+    // onClose: comunque si chiuda, scelta fatta o Annulla o tocco fuori.
+    sheetCloseCallback = opts.onClose || null;
     var hasTitle = !!opts.title;
     var hasSearch = !!opts.searchable;
     sheetHasSearch = hasSearch;
@@ -4427,6 +4464,9 @@
     elSheet.classList.remove("show");
     elSheetBackdrop.classList.remove("show");
     smettiDiSeguireTastiera();
+    var allaChiusura = sheetCloseCallback;
+    sheetCloseCallback = null;
+    if(allaChiusura) allaChiusura();
   }
   elSheetSearchInput.addEventListener("input", function(){
     renderSheetOptions(elSheetSearchInput.value);
@@ -5299,7 +5339,32 @@
   var mapLocating = false;
   var mapLocateBtn = document.getElementById("mapLocateBtn");
   var currentViewMode = "list";
-  var MAP_RADIUS_M = 50000;   /* raggio di 50 km attorno alla posizione */
+  /* L'area intorno a te: un cerchio, o l'isocrona — la zona che raggiungi
+     in auto in tanti minuti (8 ottobre 2026, Stefano). Si sceglie in Altro ›
+     Impostazioni e vale per il dispositivo, come il tema. L'isocrona la
+     calcola il server (/api/isocrona), che la chiede a Valhalla e la tiene
+     in cache; qui se ne tiene una copia per non richiederla a ogni tocco
+     del pulsante di posizione. */
+  var AREA_CHIAVE = "miopalco.area";
+  var AREA_RAGGI_KM = [10, 20, 30, 50, 100];
+  var AREA_MINUTI = [15, 30, 45, 60];   /* Valhalla non va oltre l'ora */
+  var areaMappa = {isocrona: false, km: 50, minuti: 30};
+  try {
+    var areaSalvata = JSON.parse(localStorage.getItem(AREA_CHIAVE) || "null");
+    if(areaSalvata){
+      areaMappa.isocrona = !!areaSalvata.isocrona;
+      if(AREA_RAGGI_KM.indexOf(areaSalvata.km) > -1) areaMappa.km = areaSalvata.km;
+      if(AREA_MINUTI.indexOf(areaSalvata.minuti) > -1) areaMappa.minuti = areaSalvata.minuti;
+    }
+  } catch(e){}
+  function salvaAreaMappa(){
+    try { localStorage.setItem(AREA_CHIAVE, JSON.stringify(areaMappa)); } catch(e){}
+  }
+  var mapUserIsocrona = null;     /* il poligono disegnato */
+  var isocronaPronte = {};        /* "lat,lng,minuti" arrotondati -> geometria */
+  var isocronaRichiesta = 0;      /* vale l'ultima risposta, non la piu' lenta */
+  var isocronaAvvisato = false;
+  var AREA_STILE = {color:"#0a84ff", weight:2, opacity:.75, fillColor:"#0a84ff", fillOpacity:.08, interactive:false};
 
   /* Un'icona per colore, tenuta da parte: i colori sono sette, i segnalini
      centinaia, e ricostruire lo stesso divIcon a ogni ridisegno e' lavoro
@@ -5419,14 +5484,141 @@
     mapLocating = busy;
     if(mapLocateBtn) mapLocateBtn.classList.toggle("locating", busy);
   }
-  /* centra la mappa sulla posizione dell'utente con un raggio visibile di 50 km */
+  /* centra la mappa sulla posizione dell'utente e disegna l'area scelta:
+     il cerchio, o l'isocrona quando arriva. Se hai scelto un altro centro
+     tenendo premuta la mappa, l'area resta li' e si muove solo il pallino
+     blu. */
   function showMapUserLocation(lat, lng, center){
     if(!leafletMap) return;
     if(mapUserMarker) mapUserMarker.setLatLng([lat, lng]);
     else mapUserMarker = L.marker([lat, lng], {icon:getMapUserIcon(), interactive:false, zIndexOffset:1000}).addTo(leafletMap);
-    if(mapUserCircle) mapUserCircle.setLatLng([lat, lng]);
-    else mapUserCircle = L.circle([lat, lng], {radius:MAP_RADIUS_M, color:"#0a84ff", weight:1, opacity:.45, fillColor:"#0a84ff", fillOpacity:.05, interactive:false}).addTo(leafletMap);
-    if(center) leafletMap.fitBounds(L.latLng(lat, lng).toBounds(MAP_RADIUS_M * 2), {padding:[8, 8]});
+    if(mapCentroScelto) return;
+    disegnaAreaMappa(lat, lng, center);
+  }
+  function disegnaAreaMappa(lat, lng, center){
+    if(areaMappa.isocrona) mostraIsocrona(lat, lng, center);
+    else mostraCerchio(lat, lng, center);
+  }
+
+  /* ---------------- un altro centro per l'area ----------------
+     (8 ottobre 2026, Stefano) Tenendo premuto un punto vuoto della mappa,
+     quel punto diventa il centro del cerchio o dell'isocrona: per vedere
+     cosa c'e' a mezz'ora da una serata, non da casa. Il punto si segna con
+     una croce. Non si salva: e' un'occhiata del momento, e il pulsante di
+     posizione riporta l'area su di te. Sui segnalini la pressione lunga
+     resta quella che li sposta. */
+  var mapCentroScelto = null;     /* {lat, lng} o null: allora il centro sei tu */
+  var mapCentroMarker = null;
+  var mapCentroIcon = null;
+  function getMapCentroIcon(){
+    if(mapCentroIcon) return mapCentroIcon;
+    mapCentroIcon = L.divIcon({
+      className: "map-centro-croce",
+      html: '<svg width="30" height="30" viewBox="0 0 30 30">'+
+              '<path d="M15 3v24M3 15h24" stroke="#fff" stroke-width="7" stroke-linecap="round"/>'+
+              '<path d="M15 3v24M3 15h24" stroke="#1c1c1e" stroke-width="3.2" stroke-linecap="round"/>'+
+            '</svg>',
+      iconSize: [30, 30],
+      iconAnchor: [15, 15]
+    });
+    return mapCentroIcon;
+  }
+  function scegliCentroArea(latlng){
+    mapCentroScelto = {lat: latlng.lat, lng: latlng.lng};
+    if(mapCentroMarker) mapCentroMarker.setLatLng(latlng);
+    else mapCentroMarker = L.marker(latlng, {icon:getMapCentroIcon(), interactive:false, zIndexOffset:900}).addTo(leafletMap);
+    isocronaAvvisato = false;
+    disegnaAreaMappa(latlng.lat, latlng.lng, false);
+    if(navigator.vibrate) navigator.vibrate(30);
+    toast(areaMappa.isocrona
+      ? ("Area a " + areaMappa.minuti + " minuti da qui · il pulsante di posizione la riporta su di te")
+      : ("Area a " + areaMappa.km + " km da qui · il pulsante di posizione la riporta su di te"));
+  }
+  function togliCentroScelto(){
+    mapCentroScelto = null;
+    if(mapCentroMarker){ mapCentroMarker.remove(); mapCentroMarker = null; }
+  }
+  function armaCentroDaPressione(){
+    var contenitore = leafletMap.getContainer();
+    contenitore.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+    contenitore.addEventListener("pointerdown", function(e){
+      if(mapSpostamento || e.isPrimary === false) return;
+      if(e.pointerType === "mouse" && e.button !== 0) return;
+      // Solo sulla mappa nuda: segnalini, finestrelle e pulsanti hanno i
+      // loro gesti.
+      if(e.target.closest(".leaflet-marker-icon, .leaflet-popup, .leaflet-control")) return;
+      var x0 = e.clientX, y0 = e.clientY, dito = e.pointerId;
+      var attesa = setTimeout(function(){
+        smetti();
+        var r = contenitore.getBoundingClientRect();
+        scegliCentroArea(leafletMap.containerPointToLatLng(L.point(x0 - r.left, y0 - r.top)));
+        // Il tocco che finisce dopo non deve diventare un click sulla mappa.
+        function fermaClick(c){ c.stopPropagation(); c.preventDefault(); }
+        contenitore.addEventListener("click", fermaClick, true);
+        setTimeout(function(){ contenitore.removeEventListener("click", fermaClick, true); }, 800);
+      }, PRESSIONE_LUNGA_MS);
+      function muovi(ev){
+        if(ev.pointerId === dito && Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) > 10) smetti();
+      }
+      function altroDito(ev){ if(ev.pointerId !== dito) smetti(); }
+      function smetti(){
+        clearTimeout(attesa);
+        document.removeEventListener("pointermove", muovi);
+        document.removeEventListener("pointerdown", altroDito);
+        document.removeEventListener("pointerup", smetti);
+        document.removeEventListener("pointercancel", smetti);
+      }
+      document.addEventListener("pointermove", muovi);
+      document.addEventListener("pointerdown", altroDito);
+      document.addEventListener("pointerup", smetti);
+      document.addEventListener("pointercancel", smetti);
+    });
+  }
+  function togliAreaMappa(){
+    if(mapUserCircle){ mapUserCircle.remove(); mapUserCircle = null; }
+    if(mapUserIsocrona){ mapUserIsocrona.remove(); mapUserIsocrona = null; }
+  }
+  function mostraCerchio(lat, lng, center){
+    var raggio = areaMappa.km * 1000;
+    togliAreaMappa();
+    mapUserCircle = L.circle([lat, lng], Object.assign({radius:raggio}, AREA_STILE)).addTo(leafletMap);
+    if(center) leafletMap.fitBounds(L.latLng(lat, lng).toBounds(raggio * 2), {padding:[8, 8]});
+  }
+  function mostraIsocrona(lat, lng, center){
+    var minuti = areaMappa.minuti;
+    // Lo stesso arrotondamento del server: un chilometro piu' in la' e'
+    // la stessa isocrona.
+    var chiave = lat.toFixed(2) + "," + lng.toFixed(2) + "," + minuti;
+    var numero = ++isocronaRichiesta;
+    function disegna(geometria){
+      togliAreaMappa();
+      mapUserIsocrona = L.geoJSON(geometria, {style: function(){ return AREA_STILE; }, interactive:false}).addTo(leafletMap);
+      if(center) leafletMap.fitBounds(mapUserIsocrona.getBounds(), {padding:[8, 8]});
+    }
+    if(isocronaPronte[chiave]){ disegna(isocronaPronte[chiave]); return; }
+    // Finche' non arriva resta l'area di prima, se c'e': meglio un cerchio
+    // per un secondo che una mappa senza niente.
+    if(!mapUserCircle && !mapUserIsocrona) mostraCerchio(lat, lng, false);
+    api("GET", "/api/isocrona?lat=" + lat + "&lng=" + lng + "&minuti=" + minuti).then(function(r){
+      isocronaPronte[chiave] = r.geometry;
+      if(numero !== isocronaRichiesta || !areaMappa.isocrona || minuti !== areaMappa.minuti) return;
+      disegna(r.geometry);
+    }).catch(function(){
+      if(numero !== isocronaRichiesta) return;
+      mostraCerchio(lat, lng, center);
+      if(!isocronaAvvisato){
+        isocronaAvvisato = true;
+        toast("Il servizio dei percorsi non risponde: sulla mappa c’è il cerchio");
+      }
+    });
+  }
+  /* Cambiata l'impostazione, l'area si ridisegna subito se la mappa sa gia'
+     dove sei: senza ricentrare, l'hai lasciata dove ti serviva. */
+  function ridisegnaAreaMappa(){
+    var c = mapCentroScelto || mapUserCoords || nearMeCoords;
+    if(!leafletMap || !c) return;
+    isocronaAvvisato = false;
+    disegnaAreaMappa(c.lat, c.lng, false);
   }
   function locateOnMap(opts){
     opts = opts || {};
@@ -5465,6 +5657,7 @@
     /* Appena rimetti le mani sulla mappa, la tendina dei risultati se ne va:
        e' un passaggio, non un pannello da chiudere a mano. */
     leafletMap.on("click dragstart popupopen", function(){ hideMapSearchResults(); });
+    armaCentroDaPressione();
   }
   var mapVenueBounds = [];
   function fitMapToVenues(){
@@ -5484,7 +5677,7 @@
     if(v.contact_name) righe.push('<div class="mp-row"><span class="mp-ico">👤</span><span>'+dato(v.contact_name)+'</span></div>');
     var indirizzo = [v.address, v.locality, v.city].filter(function(x){ return x; }).join(", ");
     if(indirizzo) righe.push('<div class="mp-row"><span class="mp-ico">📍</span><span>'+dato(indirizzo)+'</span></div>');
-    if(posizioneIncerta(v)) righe.push('<div class="mp-row" style="color:var(--orange);"><span class="mp-ico">⚠️</span><span>Posizione incerta: è il centro della città, non il locale</span></div>');
+    if(posizioneIncerta(v)) righe.push('<div class="mp-row" style="color:var(--orange);"><span class="mp-ico">⚠️</span><span>Posizione incerta: è il centro della città, non il locale. Tieni premuto il segnalino per spostarlo.</span></div>');
     if(v.phone) righe.push('<div class="mp-row"><span class="mp-ico">📱</span>'+
       '<a href="tel:'+esc(v.phone.replace(/\s+/g,""))+'">'+dato(v.phone)+'</a></div>');
     return '<div class="map-pin-popup">'+
@@ -5519,6 +5712,9 @@
   }
   function renderMapMarkers(force){
     if(!mapMarkersLayer) return;
+    // Mentre un segnalino e' in mano non si ridisegna: lo si toglierebbe da
+    // sotto il dito. Ci pensa chi lo lascia a ridisegnare.
+    if(mapSpostamento) return;
     var visibili = venues.filter(function(v){ return sullaMappa(v) && v.lat != null && v.lng != null; });
     // Se l'insieme visibile e' lo stesso di prima non si tocca niente: il
     // fit qui sotto rizoomerebbe la mappa mentre l'utente la sta guardando.
@@ -5548,13 +5744,154 @@
           openDetail(v.id);
         });
       });
+      armaSpostamento(marker, v);
       marker.addTo(mapMarkersLayer);
       mapMarkers[v.id] = marker;
       bounds.push([v.lat, v.lng]);
     });
     mapVenueBounds = bounds;
-    /* il fit sui palchi serve solo se non stiamo centrando sulla posizione dell'utente */
-    if(!mapUserCoords && !nearMeCoords && !mapLocating) fitMapToVenues();
+    /* il fit sui palchi serve solo se non stiamo centrando sulla posizione
+       dell'utente, e non dopo aver spostato un segnalino: la mappa resta
+       dove l'hai lasciato */
+    var riadatta = !mapNonRiadattare;
+    mapNonRiadattare = false;
+    if(riadatta && !mapUserCoords && !nearMeCoords && !mapLocating) fitMapToVenues();
+  }
+  /* ---------------- spostare un segnalino ----------------
+     Chiesto da Stefano l'8 ottobre 2026: certi segnalini non stanno dove
+     sta il locale. Si tiene premuto il segnalino, dopo un attimo si stacca
+     (vibra e cresce), lo si porta col dito e lo si lascia dove va. Prima di
+     salvare si chiede conferma, perche' un dito che scivola sulla mappa
+     non deve spostare un palco per sbaglio; Annulla lo rimette dov'era.
+     Il punto salvato e' "preciso": l'ha messo una persona guardando la
+     mappa, ed e' la stessa rotta della conferma della ricerca avanzata.
+
+     La pressione lunga e non il trascinamento diretto perche' sulla mappa
+     il dito serve gia' a spostare la mappa, e i segnalini sono tanti: un
+     palco si sposta solo se lo vuoi davvero. Il segnalino si tiene per il
+     punto in cui l'hai preso, come una cosa vera: la punta resta sotto il
+     dito spostata di quel tanto, cosi' si vede dove va. */
+  var PRESSIONE_LUNGA_MS = 550;
+  var mapSpostamento = null;     /* {marker, v, da} mentre un segnalino e' in mano */
+  var mapNonRiadattare = false;
+  function armaSpostamento(marker, v){
+    marker.on("add", function(){
+      var el = marker.getElement();
+      if(!el || el.__spostabile) return;
+      el.__spostabile = true;
+      // Il menu del tocco lungo (Android) o la lente (iPhone) non servono.
+      el.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+      el.addEventListener("pointerdown", function(e){
+        if(mapSpostamento || e.isPrimary === false) return;
+        if(e.pointerType === "mouse" && e.button !== 0) return;
+        var x0 = e.clientX, y0 = e.clientY, dito = e.pointerId;
+        var attesa = setTimeout(function(){
+          smetti();
+          iniziaSpostamento(marker, v, x0, y0, dito);
+        }, PRESSIONE_LUNGA_MS);
+        // Se il dito si muove prima del tempo stai spostando la mappa; se
+        // arriva un secondo dito stai zoomando.
+        function muovi(ev){
+          if(ev.pointerId === dito && Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) > 10) smetti();
+        }
+        function altroDito(ev){ if(ev.pointerId !== dito) smetti(); }
+        function smetti(){
+          clearTimeout(attesa);
+          document.removeEventListener("pointermove", muovi);
+          document.removeEventListener("pointerdown", altroDito);
+          document.removeEventListener("pointerup", smetti);
+          document.removeEventListener("pointercancel", smetti);
+        }
+        document.addEventListener("pointermove", muovi);
+        document.addEventListener("pointerdown", altroDito);
+        document.addEventListener("pointerup", smetti);
+        document.addEventListener("pointercancel", smetti);
+      });
+    });
+  }
+  function iniziaSpostamento(marker, v, x, y, dito){
+    var el = marker.getElement();
+    if(!el || !leafletMap) return;
+    var contenitore = leafletMap.getContainer();
+    leafletMap.closePopup();
+    hideMapSearchResults();
+    // La mappa smette di seguire il dito: da qui il dito porta il segnalino.
+    leafletMap.dragging.disable();
+    var r = contenitore.getBoundingClientRect();
+    var punta = leafletMap.latLngToContainerPoint(marker.getLatLng());
+    var scarto = L.point(punta.x - (x - r.left), punta.y - (y - r.top));
+    mapSpostamento = {marker: marker, v: v, da: marker.getLatLng()};
+    marker.setZIndexOffset(10000);
+    el.classList.add("map-pin-alzato");
+    if(navigator.vibrate) navigator.vibrate(30);
+    function muovi(ev){
+      if(ev.pointerId !== dito) return;
+      ev.preventDefault();
+      var rr = contenitore.getBoundingClientRect();
+      marker.setLatLng(leafletMap.containerPointToLatLng(
+        L.point(ev.clientX - rr.left, ev.clientY - rr.top).add(scarto)));
+    }
+    function lascia(ev){
+      if(ev.pointerId !== dito) return;
+      document.removeEventListener("pointermove", muovi);
+      document.removeEventListener("pointerup", lascia);
+      document.removeEventListener("pointercancel", lascia);
+      leafletMap.dragging.enable();
+      el.classList.remove("map-pin-alzato");
+      marker.setZIndexOffset(0);
+      // Il tocco che finisce qui diventerebbe un click sul segnalino, e il
+      // click apre la finestrella: lo si ferma prima che ci arrivi.
+      function fermaClick(c){ c.stopPropagation(); c.preventDefault(); }
+      contenitore.addEventListener("click", fermaClick, true);
+      setTimeout(function(){ contenitore.removeEventListener("click", fermaClick, true); }, 400);
+      if(ev.type === "pointercancel"){ finisciSpostamento(false); return; }
+      // Il foglio sale dopo che il tocco e' finito del tutto, se no il
+      // click di questo stesso tocco cadrebbe sul suo sfondo e lo chiuderebbe.
+      setTimeout(chiediConfermaSpostamento, 250);
+    }
+    document.addEventListener("pointermove", muovi, {passive: false});
+    document.addEventListener("pointerup", lascia);
+    document.addEventListener("pointercancel", lascia);
+  }
+  function distanzaLeggibile(m){
+    return m < 1000 ? (Math.round(m) + " m") : ((m / 1000).toFixed(1).replace(".", ",") + " km");
+  }
+  function chiediConfermaSpostamento(){
+    var s = mapSpostamento;
+    if(!s) return;
+    var metri = s.da.distanceTo(s.marker.getLatLng());
+    if(metri < 2){ finisciSpostamento(false); return; }
+    var confermato = false;
+    openSheet({
+      title: "Spostare il palco qui, " + distanzaLeggibile(metri) + " più in là? La posizione diventa precisa.",
+      options: [{label: "Conferma", onSelect: function(){ confermato = true; }}],
+      onClose: function(){ finisciSpostamento(confermato); }
+    });
+  }
+  function finisciSpostamento(salva){
+    var s = mapSpostamento;
+    if(!s) return;
+    if(!salva){
+      s.marker.setLatLng(s.da);
+      mapSpostamento = null;
+      return;
+    }
+    var punto = s.marker.getLatLng();
+    api("POST", "/api/locations/" + s.v.id + "/geocode/conferma", {lat: punto.lat, lng: punto.lng})
+      .then(function(esito){
+        mapSpostamento = null;
+        if(esito.location){
+          applyUpdatedVenue(esito.location);
+          mapNonRiadattare = true;
+          renderAll();
+          mapNonRiadattare = false;
+        }
+        toast("Posizione aggiornata");
+      }).catch(function(err){
+        s.marker.setLatLng(s.da);
+        mapSpostamento = null;
+        toast(err.message || "Non sono riuscito a salvare la posizione");
+      });
   }
   /* ---------------- la ricerca in mappa ----------------
      In elenco la ricerca filtra: restano le righe che corrispondono. In
@@ -5678,7 +6015,16 @@
     if(prima) prima.click();
     else elSearch.blur();
   });
-  mapLocateBtn.addEventListener("click", function(){ locateOnMap({}); });
+  mapLocateBtn.addEventListener("click", function(){
+    // "Dove sono io": l'area torna su di te.
+    if(mapCentroScelto){
+      togliCentroScelto();
+      var c = mapUserCoords || nearMeCoords;
+      if(c) disegnaAreaMappa(c.lat, c.lng, true);
+      else togliAreaMappa();
+    }
+    locateOnMap({});
+  });
   var elViewToggle = document.getElementById("viewToggle");
   elViewToggle.addEventListener("click", function(e){
     var btn = e.target.closest(".view-toggle-btn");
@@ -14974,6 +15320,36 @@
      scritta. Spegnendo, i tre ascoltatori restano attaccati ma il primo si
      tira indietro: niente fascia, niente preventDefault, il dito torna
      tutto allo scorrimento. */
+  /* Le righe dell'area sulla mappa (Impostazioni › Mappa). */
+  var elAreaIsocronaToggle = document.getElementById("areaIsocronaToggle");
+  function renderAreaMappaPrefs(){
+    elAreaIsocronaToggle.checked = areaMappa.isocrona;
+    document.getElementById("rowAreaRaggio").hidden = areaMappa.isocrona;
+    document.getElementById("rowAreaMinuti").hidden = !areaMappa.isocrona;
+    document.getElementById("areaRaggioValue").textContent = areaMappa.km + " km";
+    document.getElementById("areaMinutiValue").textContent = areaMappa.minuti + " min";
+  }
+  function cambiaAreaMappa(campo, valore){
+    areaMappa[campo] = valore;
+    salvaAreaMappa();
+    renderAreaMappaPrefs();
+    ridisegnaAreaMappa();
+  }
+  renderAreaMappaPrefs();
+  elAreaIsocronaToggle.addEventListener("change", function(){
+    cambiaAreaMappa("isocrona", elAreaIsocronaToggle.checked);
+  });
+  document.getElementById("rowAreaRaggio").addEventListener("click", function(){
+    openSheet({title: "Raggio", options: AREA_RAGGI_KM.map(function(km){
+      return {label: km + " km", checkmark: areaMappa.km === km, onSelect: function(){ cambiaAreaMappa("km", km); }};
+    })});
+  });
+  document.getElementById("rowAreaMinuti").addEventListener("click", function(){
+    openSheet({title: "Tempo in auto", options: AREA_MINUTI.map(function(m){
+      return {label: m + " min", checkmark: areaMappa.minuti === m, onSelect: function(){ cambiaAreaMappa("minuti", m); }};
+    })});
+  });
+
   var elPtrToggle = document.getElementById("ptrToggle");
   elPtrToggle.checked = ptrAttivo;
   elPtrToggle.addEventListener("change", function(){

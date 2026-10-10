@@ -138,6 +138,17 @@ rilegge prima di ogni ridisegno, così quello che hai scritto non sparisce.
   `sullaMappa`): restano nell'elenco, e sulla mappa tornano solo se nei
   Filtri è spuntato lo stato Inattivo, o quel segnalino solo se lo cerchi
   per nome nella ricerca della mappa.
+- **Un segnalino si sposta tenendolo premuto** (dall'8 ottobre 2026,
+  `armaSpostamento`): dopo mezzo secondo vibra e cresce, si porta col dito,
+  e lasciato chiede conferma con il foglio dal basso (Conferma non rossa,
+  perché non toglie niente). Annulla o un tocco fuori lo rimettono dov'era.
+  Il punto salvato è «preciso». Il trascinamento diretto no: il dito sulla
+  mappa sposta la mappa.
+- **Tenendo premuto un punto vuoto della mappa** (dall'8 ottobre 2026,
+  `armaCentroDaPressione`) quel punto diventa il centro del cerchio o
+  dell'isocrona, segnato con una croce. Niente conferma: non salva niente.
+  Il pulsante di posizione riporta l'area su di te; filtri e cambio
+  Elenco/Mappa non la toccano.
 - La pastiglia del palco ha il bordo (`.row-badge.contorno`), quella
   dell'opportunità è piena. Tutte e due stanno in coda alla riga, a destra.
 
