@@ -8,6 +8,7 @@ Avvio:  python3 app.py [porta]
 import base64
 import csv
 import difflib
+import gzip
 import hashlib
 import html
 import http.cookies
@@ -9538,23 +9539,55 @@ LOGIN_PAGE_TEMPLATE = """<!doctype html>
 </html>"""
 
 
+# Le copie compresse dei file statici, per percorso, data e dimensione.
+_GZIP_CACHE = {}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "MioPalcoCRM/1.0"
 
     def log_message(self, fmt, *args):
         pass  # niente log rumoroso in console
 
-    def _send_json(self, status, payload):
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+    def _write_body(self, body, content_type, cache_key=None):
+        """Content-Length, end_headers e corpo: compresso se conviene.
+
+        Il 21 ottobre 2026 da miopalco.com non si vedeva nessun palco: la
+        linea in uscita del Raspberry era piena e ogni accesso spingeva nel
+        tunnel 840 KB di pagina e 900 KB di palchi cosi' com'erano. Compressi
+        diventano un decimo. Cloudflare comprime verso il telefono, ma il
+        tratto fra qui e Cloudflare e' quello stretto, e lo fa solo il server.
+
+        cache_key serve ai file statici: la stessa index.html si comprime
+        una volta per build, non a ogni accesso.
+        """
+        accetta = "gzip" in (self.headers.get("Accept-Encoding") or "").lower()
+        testo = content_type.startswith(("text/", "application/json", "application/javascript",
+                                         "application/manifest+json"))
+        if testo:
+            self.send_header("Vary", "Accept-Encoding")
+        if accetta and testo and len(body) > 1024:
+            gz = _GZIP_CACHE.get(cache_key) if cache_key else None
+            if gz is None:
+                gz = gzip.compress(body, compresslevel=6)
+                if cache_key:
+                    _GZIP_CACHE[cache_key] = gz
+            body = gz
+            self.send_header("Content-Encoding", "gzip")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_json(self, status, payload):
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self._write_body(body, "application/json")
+
     def _send_file(self, path, content_type, cache_control=None):
         try:
             with open(path, "rb") as f:
+                st = os.fstat(f.fileno())
                 body = f.read()
         except OSError:
             self._send_json(404, {"error": "Non trovato"})
@@ -9563,9 +9596,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         if cache_control:
             self.send_header("Cache-Control", cache_control)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body, content_type, cache_key=(path, st.st_mtime_ns, st.st_size))
 
     def _send_download(self, body, content_type, filename):
         self.send_response(200)
@@ -9598,9 +9629,7 @@ class Handler(BaseHTTPRequestHandler):
         # Senza questo il browser puo' riproporsi la copia vecchia di sw.js
         # dalla cache HTTP, e l'aggiornamento non parte mai.
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body, "application/javascript")
 
     def _read_json_body(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -9664,9 +9693,7 @@ class Handler(BaseHTTPRequestHandler):
         body_bytes = body.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body_bytes)))
-        self.end_headers()
-        self.wfile.write(body_bytes)
+        self._write_body(body_bytes, "text/html")
 
     def _uscita_dal_browser_interno(self, app_nome):
         """Al posto di «Accedi con Google», dentro Facebook e simili: come
@@ -9787,9 +9814,7 @@ class Handler(BaseHTTPRequestHandler):
         # Il service worker la riconosce da qui e non la mette in cache al
         # posto dell'app: chi rientra senza rete deve ritrovare l'app.
         self.send_header("X-Pagina-Pubblica", "1")
-        self.send_header("Content-Length", str(len(body_bytes)))
-        self.end_headers()
-        self.wfile.write(body_bytes)
+        self._write_body(body_bytes, "text/html")
         return True
 
     def _send_landing_asset(self, path):
