@@ -384,6 +384,14 @@ CASH_CATEGORY_LIST = "cost_category"
 DEFAULT_COST_CATEGORIES = [
     "Trasferta", "Service", "Prove", "Strumenti", "Promozione", "SIAE", "Varie",
 ]
+# Le categorie dei ricavi (12 ottobre 2026, chieste da Stefano) sono una
+# lista a parte e non le stesse dei costi: "Trasferta" o "SIAE" su un
+# incasso non vogliono dire niente, e "Merch" su una spesa nemmeno. Stessa
+# tabella, chiave diversa.
+REVENUE_CATEGORY_LIST = "revenue_category"
+DEFAULT_REVENUE_CATEGORIES = ["Merch", "Rimborsi", "Contributi", "Varie"]
+CASH_CATEGORY_LISTS = {"costo": CASH_CATEGORY_LIST, "ricavo": REVENUE_CATEGORY_LIST}
+CASH_CATEGORY_DEFAULTS = {"costo": DEFAULT_COST_CATEGORIES, "ricavo": DEFAULT_REVENUE_CATEGORIES}
 
 CASH_FIELDS = ["kind", "entry_date", "description", "amount", "category", "gig_id", "paid"]
 
@@ -624,6 +632,12 @@ def init_db():
     # Dopo, chi le svuota tutte non se le ritrova al riavvio dopo.
     cash_is_new = not conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cash_entries'"
+    ).fetchone()
+    # Le categorie dei ricavi sono arrivate dopo la cassa: alle band che
+    # esistono gia' si mettono la prima volta che il server parte e non ne
+    # trova nessuna, in nessuna band.
+    revenue_cats_are_new = cash_is_new or not conn.execute(
+        "SELECT 1 FROM venue_list_values WHERE list_key = ? LIMIT 1", (REVENUE_CATEGORY_LIST,)
     ).fetchone()
     conn.executescript(
         """
@@ -1001,7 +1015,10 @@ def init_db():
     seed_app_templates(conn)
     if cash_is_new:
         for row in conn.execute("SELECT id FROM workspaces").fetchall():
-            seed_cost_categories(conn, row["id"])
+            seed_cost_categories(conn, row["id"], "costo")
+    if revenue_cats_are_new:
+        for row in conn.execute("SELECT id FROM workspaces").fetchall():
+            seed_cost_categories(conn, row["id"], "ricavo")
     # Le tipologie di default non sono piu' globali: nascono con il workspace,
     # dentro create_workspace.
     conn.commit()
@@ -2830,6 +2847,13 @@ def invia_promemoria_compiti(conn, adesso=None):
                     "UPDATE task_reminders SET devices = ? WHERE id = ?", (quanti, cur.lastrowid)
                 )
                 partiti.append({"task_id": p["id"], "kind": p["kind"], "email": p["email"]})
+                # Fino al 10 ottobre 2026 gli ultimi dieci si leggevano in
+                # Admin, da task_reminders; adesso stanno nel registro con
+                # tutto il resto. task_reminders resta: e' lei che impedisce
+                # di mandare due volte lo stesso avviso.
+                registra("avviso_compito", p["email"], tipo=p["kind"],
+                         compito=p["description"] or "Compito", palco=p.get("palco"),
+                         band=p.get("band"), scadenza=p["due_date"], dispositivi=quanti)
             else:
                 conn.execute("DELETE FROM task_reminders WHERE id = ?", (cur.lastrowid,))
             conn.commit()
@@ -2897,17 +2921,6 @@ def avvia_promemoria():
 
 
 def promemoria_stato(conn):
-    recenti = conn.execute(
-        """
-        SELECT r.kind, r.due_date, r.email, r.devices, r.sent_at,
-               t.description, p.name
-        FROM task_reminders r
-        LEFT JOIN tasks t ON t.id = r.task_id
-        LEFT JOIN user_profiles p ON p.email = r.email
-        WHERE r.devices > 0
-        ORDER BY r.sent_at DESC LIMIT 10
-        """
-    ).fetchall()
     return {
         "hour": PROMEMORIA_ORA,
         "active": push_enabled(),
@@ -2915,14 +2928,6 @@ def promemoria_stato(conn):
         "reminder_days": PROMEMORIA_SOLLECITO_GIORNI,
         "last_run": PROMEMORIA_ULTIMO_GIRO["at"],
         "last_sent": PROMEMORIA_ULTIMO_GIRO["sent"],
-        "recent": [
-            {
-                "kind": r["kind"], "due_date": r["due_date"], "sent_at": r["sent_at"],
-                "description": r["description"], "devices": r["devices"],
-                "name": r["name"] or r["email"].split("@")[0],
-            }
-            for r in recenti
-        ],
     }
 
 
@@ -3638,24 +3643,25 @@ def delete_template(conn, template_id):
         raise ApiError(404, "Template non trovato")
 
 
-def seed_cost_categories(conn, ws):
-    """Le voci di spesa di partenza di una band nuova.
+def seed_cost_categories(conn, ws, kind):
+    """Le voci di spesa (o di ricavo) di partenza di una band nuova.
 
     Non passano da app_templates come le altre liste: quella tabella si
     semina una volta sola, alla primissima installazione, e un genere nuovo
     aggiunto dopo non ci entrerebbe mai. Qui la lista sta nel codice e la
     band se la cambia da Impostazioni.
     """
+    key = CASH_CATEGORY_LISTS[kind]
     if conn.execute(
         "SELECT 1 FROM venue_list_values WHERE workspace_id = ? AND list_key = ? LIMIT 1",
-        (ws, CASH_CATEGORY_LIST),
+        (ws, key),
     ).fetchone():
         return
     ts = now_iso()
     conn.executemany(
         "INSERT INTO venue_list_values (list_key, name, workspace_id, created_at) "
         "VALUES (?, ?, ?, ?)",
-        [(CASH_CATEGORY_LIST, name, ws, ts) for name in DEFAULT_COST_CATEGORIES],
+        [(key, name, ws, ts) for name in CASH_CATEGORY_DEFAULTS[kind]],
     )
 
 
@@ -3697,7 +3703,8 @@ def seed_workspace_defaults(conn, ws, band_name=None, genre=None, person=None):
                 [(key, name, ws, ts) for name in values],
             )
 
-    seed_cost_categories(conn, ws)
+    seed_cost_categories(conn, ws, "costo")
+    seed_cost_categories(conn, ws, "ricavo")
 
     messages = fetch_templates(conn, "wa_template")
     if messages and not conn.execute(
@@ -4590,17 +4597,14 @@ def clean_cash_payload(conn, ws, body, partial, kind=None):
             value = value.strip() or None
         data[field] = value
 
-    verso = data.get("kind", kind)
-    # Il legame con la serata vale solo su un costo: il compenso di una
-    # serata non e' una riga di questa tabella, lo proietta gig_revenue_rows.
-    #
-    # La spunta invece vale su tutti e due i versi, perche' la cassa conta i
-    # soldi che si sono mossi davvero: su un costo vuol dire pagato, su un
-    # ricavo incassato. Un movimento senza spunta e' un impegno, non un
-    # euro in cassa. (I compensi delle serate sono sempre incassati: non
-    # c'e' dove scrivere il contrario, e quel posto sarebbe la serata.)
-    if verso == "ricavo" and data.get("gig_id") is not None:
-        raise ApiError(400, "Il compenso di una serata si scrive sulla serata, non in cassa")
+    # Categoria, serata e spunta valgono su tutti e due i versi. Fino al 12
+    # ottobre 2026 un ricavo non poteva stare su una serata, per paura che
+    # ci si riscrivesse il compenso: ma il merch venduto o il rimborso di
+    # quella sera sono soldi di quella serata quanto la benzina. Il compenso
+    # resta sulla serata (cashRows() lo proietta da gigs.fee) e la pagina lo
+    # dice accanto al campo. La spunta su un costo vuol dire pagato, su un
+    # ricavo incassato: senza, il movimento e' un impegno, non un euro in
+    # cassa.
     return data
 
 
@@ -4659,33 +4663,35 @@ def delete_cash_entry(conn, ws, entry_id):
     return fetch_cash(conn, ws)
 
 
-# Le categorie di spesa. Stessa tabella delle altre liste configurabili, ma
-# CRUD suo: rinominare propaga sui movimenti invece che sui palchi, e
-# una categoria in uso non si elimina.
+# Le categorie di spesa e quelle dei ricavi. Stessa tabella delle altre
+# liste configurabili, ma CRUD suo: rinominare propaga sui movimenti invece
+# che sui palchi, e una categoria in uso non si elimina. kind dice quale
+# delle due liste: una "Varie" fra i costi e una fra i ricavi sono due voci
+# diverse, e rinominarne una non tocca i movimenti dell'altra.
 
 
-def fetch_cost_categories(conn, ws):
+def fetch_cost_categories(conn, ws, kind="costo"):
     return [dict(r) for r in conn.execute(
         "SELECT * FROM venue_list_values WHERE workspace_id = ? AND list_key = ? "
         "ORDER BY name COLLATE NOCASE ASC",
-        (ws, CASH_CATEGORY_LIST),
+        (ws, CASH_CATEGORY_LISTS[kind]),
     ).fetchall()]
 
 
-def create_cost_category(conn, ws, body):
+def create_cost_category(conn, ws, body, kind="costo"):
     name = ((body or {}).get("name") or "").strip()
     if not name:
         raise ApiError(400, "Il nome della categoria è obbligatorio")
     if conn.execute(
         "SELECT 1 FROM venue_list_values WHERE LOWER(name) = LOWER(?) "
         "AND workspace_id = ? AND list_key = ?",
-        (name, ws, CASH_CATEGORY_LIST),
+        (name, ws, CASH_CATEGORY_LISTS[kind]),
     ).fetchone():
         raise ApiError(400, "Questa categoria esiste già")
     cur = conn.execute(
         "INSERT INTO venue_list_values (list_key, name, workspace_id, created_at) "
         "VALUES (?, ?, ?, ?)",
-        (CASH_CATEGORY_LIST, name, ws, now_iso()),
+        (CASH_CATEGORY_LISTS[kind], name, ws, now_iso()),
     )
     conn.commit()
     return dict(conn.execute(
@@ -4693,18 +4699,18 @@ def create_cost_category(conn, ws, body):
     ).fetchone())
 
 
-def require_cost_category(conn, ws, value_id):
+def require_cost_category(conn, ws, value_id, kind="costo"):
     row = conn.execute(
         "SELECT * FROM venue_list_values WHERE id = ? AND workspace_id = ? AND list_key = ?",
-        (value_id, ws, CASH_CATEGORY_LIST),
+        (value_id, ws, CASH_CATEGORY_LISTS[kind]),
     ).fetchone()
     if not row:
         raise ApiError(404, "Categoria non trovata")
     return row
 
 
-def update_cost_category(conn, ws, value_id, body):
-    row = require_cost_category(conn, ws, value_id)
+def update_cost_category(conn, ws, value_id, body, kind="costo"):
+    row = require_cost_category(conn, ws, value_id, kind)
     new_name = ((body or {}).get("name") or "").strip()
     if not new_name:
         raise ApiError(400, "Il nome della categoria è obbligatorio")
@@ -4712,7 +4718,7 @@ def update_cost_category(conn, ws, value_id, body):
     if new_name.lower() != old_name.lower() and conn.execute(
         "SELECT 1 FROM venue_list_values WHERE LOWER(name) = LOWER(?) AND id != ? "
         "AND workspace_id = ? AND list_key = ?",
-        (new_name, value_id, ws, CASH_CATEGORY_LIST),
+        (new_name, value_id, ws, CASH_CATEGORY_LISTS[kind]),
     ).fetchone():
         raise ApiError(400, "Questa categoria esiste già")
     conn.execute("UPDATE venue_list_values SET name = ? WHERE id = ?", (new_name, value_id))
@@ -4722,8 +4728,8 @@ def update_cost_category(conn, ws, value_id, body):
         # che la usano: li' dentro c'e' scritto il nome, non l'id.
         cur = conn.execute(
             "UPDATE cash_entries SET category = ?, updated_at = ? "
-            "WHERE category = ? AND workspace_id = ?",
-            (new_name, now_iso(), old_name, ws),
+            "WHERE category = ? AND workspace_id = ? AND kind = ?",
+            (new_name, now_iso(), old_name, ws, kind),
         )
         affected = cur.rowcount
     conn.commit()
@@ -4734,11 +4740,11 @@ def update_cost_category(conn, ws, value_id, body):
     return updated
 
 
-def delete_cost_category(conn, ws, value_id):
-    row = require_cost_category(conn, ws, value_id)
+def delete_cost_category(conn, ws, value_id, kind="costo"):
+    row = require_cost_category(conn, ws, value_id, kind)
     n = conn.execute(
-        "SELECT COUNT(*) AS n FROM cash_entries WHERE category = ? AND workspace_id = ?",
-        (row["name"], ws),
+        "SELECT COUNT(*) AS n FROM cash_entries WHERE category = ? AND workspace_id = ? AND kind = ?",
+        (row["name"], ws, kind),
     ).fetchone()["n"]
     if n:
         raise ApiError(
@@ -7576,7 +7582,7 @@ def fetch_app_users(conn, ctx):
     Per ogni band di ciascuno ci sono anche gli altri componenti, perche'
     e' la domanda da farsi prima di eliminarla: chi altro ci lavora."""
     utenti = [dict(r) for r in conn.execute(
-        "SELECT email, name, picture, created_at, last_seen_at FROM user_profiles "
+        "SELECT email, name, picture, band_roles, city, created_at, last_seen_at FROM user_profiles "
         "ORDER BY created_at"
     ).fetchall()]
     nomi = {u["email"]: u["name"] for u in utenti}
@@ -9057,6 +9063,26 @@ def _h_delete_cost_category(conn, match, query, body, ctx):
     return 204, {}
 
 
+# Le categorie dei ricavi hanno un indirizzo loro e non un ?kind= su quello
+# dei costi: le PWA vecchie chiedono /api/cash/categories e devono
+# continuare a ricevere solo le voci di spesa.
+def _h_list_revenue_categories(conn, match, query, body, ctx):
+    return 200, fetch_cost_categories(conn, require_ws(ctx), "ricavo")
+
+
+def _h_create_revenue_category(conn, match, query, body, ctx):
+    return 201, create_cost_category(conn, require_ws(ctx), body, "ricavo")
+
+
+def _h_update_revenue_category(conn, match, query, body, ctx):
+    return 200, update_cost_category(conn, require_ws(ctx), int(match.group(1)), body, "ricavo")
+
+
+def _h_delete_revenue_category(conn, match, query, body, ctx):
+    delete_cost_category(conn, require_ws(ctx), int(match.group(1)), "ricavo")
+    return 204, {}
+
+
 def _h_list_venue_list(conn, match, query, body, ctx):
     return 200, fetch_venue_list(conn, require_ws(ctx), match.group(1))
 
@@ -9236,6 +9262,10 @@ ROUTES = [
     ("POST", re.compile(r"^/api/cash/categories$"), _h_create_cost_category),
     ("PUT", re.compile(r"^/api/cash/categories/(\d+)$"), _h_update_cost_category),
     ("DELETE", re.compile(r"^/api/cash/categories/(\d+)$"), _h_delete_cost_category),
+    ("GET", re.compile(r"^/api/cash/revenue-categories$"), _h_list_revenue_categories),
+    ("POST", re.compile(r"^/api/cash/revenue-categories$"), _h_create_revenue_category),
+    ("PUT", re.compile(r"^/api/cash/revenue-categories/(\d+)$"), _h_update_revenue_category),
+    ("DELETE", re.compile(r"^/api/cash/revenue-categories/(\d+)$"), _h_delete_revenue_category),
     ("PUT", re.compile(r"^/api/cash/(\d+)$"), _h_update_cash),
     ("DELETE", re.compile(r"^/api/cash/(\d+)$"), _h_delete_cash),
     ("POST", re.compile(r"^/api/locations/(\d+)/photos$"), _h_add_photo),
