@@ -80,18 +80,20 @@ Ti serve una macchina con Docker: va bene anche un Raspberry Pi.
 ```sh
 git clone https://github.com/teopost/miopalco
 cd miopalco
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" > .env
 docker compose up -d --build
 ```
 
-L'app risponde su `http://localhost:8765`. Senza configurazione parte **senza login**, comoda per provarla in casa. Per aprirla a più persone serve il file `.env`:
+Il compose avvia due container: l'app e il suo database PostgreSQL. L'app risponde su `http://localhost:8765`. Con solo la password del database parte **senza login**, comoda per provarla in casa. Per aprirla a più persone si compila il resto del file `.env`:
 
 ```sh
-cp .env.example .env    # poi compila i valori
+cp .env.example .env    # poi compila i valori, POSTGRES_PASSWORD compresa
 docker compose up -d --build
 ```
 
 | Variabile | A cosa serve |
 |---|---|
+| `POSTGRES_PASSWORD` | Obbligatoria: la password del database PostgreSQL. Solo lettere e cifre, perché finisce dentro `DATABASE_URL` (per esempio `openssl rand -hex 24`). Va scelta prima del primo avvio: dopo, il database la tiene. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Attivano il login con Google. Si creano in Google Cloud Console → APIs & Services → Credentials → OAuth client ID. Come redirect URI va registrato `https://<tuo-dominio>/auth/google/callback`. |
 | `ADMIN_EMAILS` | Le email, separate da virgola, che vedono la scheda Admin: lì si curano i modelli con cui nascono le band nuove. |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_ENABLED` | Facoltative: un avviso su Telegram quando qualcuno entra nell'app. |
@@ -101,7 +103,23 @@ Ogni variabile è spiegata nei commenti di [`.env.example`](.env.example).
 
 **Da sapere**
 - Il login con Google, l'installazione come app e le notifiche richiedono **HTTPS**. Il modo più semplice è un [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) verso la porta 8765, ma va bene qualunque reverse proxy.
-- Tutti i dati stanno in `data/`: il database SQLite `data/crm.db` e le foto. Per il backup basta copiare quella cartella. All'avvio l'app crea e aggiorna da sola lo schema del database.
+- I dati stanno in due posti: il database nel volume Docker `miopalco-pg` e le foto in `data/`. Il backup va fatto di tutti e due: `docker compose exec db pg_dump -U miopalco -Fc miopalco > miopalco.dump` per il database, una copia di `data/` per le foto. All'avvio l'app crea e aggiorna da sola lo schema del database.
+- Prima di una cancellazione che non si può disfare (eliminare una band dall'Admin) l'app salva da sola una copia del database in `data/crm.db.bak.<motivo>.<data>`: con PostgreSQL è un `pg_dump` in formato custom, che si rimette con `pg_restore`. Ne tiene le ultime `DB_BACKUP_RETENTION` (7 se non è impostata).
+- Senza `DATABASE_URL` (per esempio lanciando `python3 app.py` a mano) l'app usa SQLite, in `data/crm.db`.
+
+### Passare da SQLite a PostgreSQL
+
+Le installazioni nate prima del database PostgreSQL hanno i dati in `data/crm.db`. Per portarli nel nuovo database, con l'app spenta:
+
+```sh
+docker compose stop miopalco
+cp data/crm.db data/crm.db.pre-postgres          # una copia in più non costa niente
+docker compose up -d db
+docker compose run --rm --no-deps miopalco python3 migra_sqlite_pg.py
+docker compose up -d
+```
+
+Lo script legge `crm.db` in sola lettura e copia tutte le tabelle, id compresi, in una transazione sola. Poi rilegge tutto da PostgreSQL e lo confronta riga per riga con SQLite: alla prima differenza annulla tutto. Se PostgreSQL contiene già dei dati si ferma, a meno di `--force`. Dopo la migrazione `crm.db` resta dov'è, ma l'app non lo usa più.
 - I file statici sono dentro l'immagine Docker: dopo ogni modifica al codice serve `docker compose up -d --build`.
 - Il `Makefile` ha le scorciatoie più comuni: `make up`, `make logs`, `make rebuild`, `make shell`.
 
@@ -112,6 +130,9 @@ Pochi file e nessun framework.
 ```
 app.py              il server: libreria standard di Python (http.server + sqlite3),
                     API JSON, login Google, notifiche push e Telegram, migrazioni
+pgcompat.py         PostgreSQL con la faccia di sqlite3: traduce al volo il dialetto
+                    di SQLite delle query di app.py
+migra_sqlite_pg.py  porta i dati da data/crm.db (SQLite) a PostgreSQL
 static/index.html   tutta l'app per il telefono, HTML + CSS + JavaScript senza build
 static/sw.js        il service worker: installazione, aggiornamenti, notifiche
 static/manifest.json
@@ -120,7 +141,7 @@ import_excel.py     importa palchi e band da file Excel
 geocode_venues.py   trova le coordinate dei palchi con OpenStreetMap (Nominatim)
 ```
 
-L'unica dipendenza esterna è [`pywebpush`](requirements.txt), e serve solo alle notifiche push: se manca, l'app parte lo stesso con le push spente. Le mappe usano Leaflet e OpenStreetMap.
+Le dipendenze esterne sono due ([`requirements.txt`](requirements.txt)): `pywebpush` per le notifiche push (se manca, l'app parte lo stesso con le push spente) e `psycopg` per PostgreSQL (serve solo con `DATABASE_URL`). Le mappe usano Leaflet e OpenStreetMap.
 
 ## Contribuire
 

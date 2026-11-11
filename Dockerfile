@@ -1,7 +1,6 @@
 # MioPalco — gestionale live per la band.
-# L'app usa la libreria standard di Python e una sola dipendenza esterna,
-# pywebpush, che serve alle notifiche push sul telefono (vedi
-# requirements.txt). Senza di lei l'app parte comunque, con le push spente.
+# L'app usa la libreria standard di Python piu' pywebpush (le notifiche push)
+# e psycopg (PostgreSQL, il database del compose). Vedi requirements.txt.
 
 FROM python:3.12-slim
 
@@ -13,12 +12,19 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# pg_dump, per la copia di sicurezza che l'app fa prima di una cancellazione
+# che non si puo' disfare (copia_di_sicurezza) quando i dati stanno in
+# PostgreSQL. Stessa versione maggiore del server (postgres:17 nel compose).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-17 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Senza questa, Python tiene lo stdout in un buffer da blocchi e "docker logs"
 # resta vuoto per ore: gli avvisi (compresi quelli delle notifiche Telegram
 # che non partono) si vedrebbero solo al riavvio del container.
 ENV PYTHONUNBUFFERED=1
 
-COPY app.py import_excel.py geocode_venues.py ./
+COPY app.py pgcompat.py migra_sqlite_pg.py import_excel.py geocode_venues.py ./
 COPY static/ ./static/
 # La pagina di presentazione: l'app la mostra su "/" a chi non ha fatto
 # l'accesso. E' la stessa che GitHub Pages pubblica dalla cartella docs/.

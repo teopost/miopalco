@@ -11,8 +11,40 @@ services:
       # l'app funziona come sempre, senza richiedere accesso.
       - path: .env
         required: false
+    environment:
+      # I dati stanno nel PostgreSQL qui sotto. Senza DATABASE_URL l'app
+      # userebbe data/crm.db (SQLite): per portarci i dati di un crm.db
+      # esistente c'e' migra_sqlite_pg.py (vedi README).
+      DATABASE_URL: postgresql://miopalco:${POSTGRES_PASSWORD:?imposta POSTGRES_PASSWORD in .env}@db:5432/miopalco
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
-      # Bind mount sulla cartella data/ già esistente sul computer, così i
-      # palchi, le band e le foto già presenti restano al loro posto
-      # anche passando a Docker: nessuna migrazione dei dati necessaria.
+      # Bind mount sulla cartella data/ già esistente sul computer: le foto,
+      # i log e le copie di sicurezza (pg_dump) restano li'.
       - ./data:/app/data
+
+  db:
+    image: postgres:17-alpine
+    container_name: miopalco-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: miopalco
+      POSTGRES_DB: miopalco
+      # Solo lettere e cifre (finisce dentro DATABASE_URL), es. openssl rand -hex 24
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?imposta POSTGRES_PASSWORD in .env}
+      # Ordinamento dei testi per codice, come SQLite: con una locale
+      # italiana "Café" e "Caffe" cambierebbero di posto negli elenchi.
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C.UTF-8
+    # Nessuna porta pubblicata: il database si raggiunge solo dalla rete interna del compose.
+    volumes:
+      - miopalco-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U miopalco -d miopalco"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    shm_size: 128mb
+
+volumes:
+  miopalco-pg:

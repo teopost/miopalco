@@ -1,6 +1,11 @@
-# L'unica dipendenza esterna di MioPalco, e serve a una cosa sola: le
-# notifiche push sul telefono (la sezione "le notifiche push" in app.py).
+# pywebpush serve a una cosa sola: le notifiche push sul telefono (la
+# sezione "le notifiche push" in app.py).
 # Il Web Push vuole una firma ECDSA e una cifratura che la libreria standard
-# di Python non ha. Tutto il resto dell'app continua a non dipendere da
-# niente: se questa riga sparisce, l'app parte lo stesso con le push spente.
+# di Python non ha. Se questa riga sparisce, l'app parte lo stesso con le
+# push spente.
 pywebpush==2.5.0
+
+# PostgreSQL, il database del compose.yaml (vedi pgcompat.py). Servono solo
+# con DATABASE_URL: senza, l'app usa data/crm.db (SQLite) e non le importa.
+psycopg[binary]==3.3.8
+psycopg-pool==3.3.3

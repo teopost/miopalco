@@ -18,6 +18,7 @@ import re
 import secrets
 import sqlite3
 import socket
+import subprocess
 import math
 import threading
 import time
@@ -49,6 +50,14 @@ except ImportError:  # pragma: no cover - immagine senza la libreria
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "crm.db")
+# Con DATABASE_URL (postgresql://utente:password@host:5432/db) i dati stanno
+# in PostgreSQL invece che in data/crm.db: e' quello che fa il compose.yaml.
+# Senza, l'app resta su SQLite come sempre. Il dialetto delle query resta
+# quello di SQLite: lo traduce pgcompat.py. Per portare i dati da un crm.db
+# esistente: migra_sqlite_pg.py.
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+_PG_DB = None
+_PG_LOCK = threading.Lock()
 # Quante copie crm.db.bak.* tenere in data/: ogni copia nuova fa sparire le
 # piu' vecchie oltre questo numero. Non e' solo ordine: una copia fatta prima
 # di cancellare un utente contiene ancora i suoi dati, e tenerle per sempre
@@ -615,11 +624,33 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _pg():
+    """Il database PostgreSQL, aperto alla prima richiesta (vedi pgcompat)."""
+    global _PG_DB
+    if _PG_DB is None:
+        with _PG_LOCK:
+            if _PG_DB is None:
+                import pgcompat
+                _PG_DB = pgcompat.Database(DATABASE_URL)
+    return _PG_DB
+
+
 def get_conn():
+    if DATABASE_URL:
+        return _pg().connect()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def table_exists(conn, name):
+    if DATABASE_URL:
+        import pgcompat
+        return pgcompat.table_exists(conn, name)
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+    ).fetchone() is not None
 
 
 def init_db():
@@ -627,13 +658,14 @@ def init_db():
     os.makedirs(PHOTOS_DIR, exist_ok=True)
     os.makedirs(PHOTOS_AD_DIR, exist_ok=True)
     conn = get_conn()
+    if DATABASE_URL:
+        import pgcompat
+        pgcompat.prepare(conn)
     # Si guarda prima di creare: e' l'unico momento in cui si puo' sapere
     # che questa installazione la cassa non l'ha mai vista, e quindi che le
     # categorie di spesa vanno ancora messe alle band che esistono gia'.
     # Dopo, chi le svuota tutte non se le ritrova al riavvio dopo.
-    cash_is_new = not conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cash_entries'"
-    ).fetchone()
+    cash_is_new = not table_exists(conn, "cash_entries")
     # Le categorie dei ricavi sono arrivate dopo la cassa: alle band che
     # esistono gia' si mettono la prima volta che il server parte e non ne
     # trova nessuna, in nessuna band.
@@ -913,6 +945,8 @@ def init_db():
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+        CREATE INDEX IF NOT EXISTS idx_tasks_location ON tasks(location_id);
+        CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id);
 
         -- La cassa della band. Dentro ci sono solo i movimenti scritti a
         -- mano: i compensi delle serate NON stanno qui. Quelli vivono su
@@ -1412,7 +1446,7 @@ def migrate_suonato_closed_at(conn):
     da qui in avanti scrivi_gig_* tengono le due date uguali da sole."""
     conn.execute(
         "UPDATE gigs SET closed_at = gig_date WHERE status = 'suonato' "
-        "AND gig_date IS NOT NULL AND closed_at IS NOT gig_date"
+        "AND gig_date IS NOT NULL AND (closed_at IS NULL OR closed_at != gig_date)"
     )
 
 
@@ -2645,12 +2679,12 @@ def push_people(conn):
     righe = conn.execute(
         """
         SELECT s.email AS email,
-               p.name AS name,
+               MAX(p.name) AS name,
                COUNT(*) AS devices
         FROM push_subscriptions s
         LEFT JOIN user_profiles p ON p.email = s.email
         GROUP BY s.email
-        ORDER BY COALESCE(NULLIF(p.name, ''), s.email) COLLATE NOCASE
+        ORDER BY COALESCE(NULLIF(MAX(p.name), ''), s.email) COLLATE NOCASE
         """
     ).fetchall()
     return [
@@ -3078,7 +3112,7 @@ def fetch_members(conn, workspace_id):
         "SELECT m.email, m.role, m.joined_at, m.invited_by, p.name, p.picture, "
         "p.band_roles, p.last_seen_at "
         "FROM workspace_members m LEFT JOIN user_profiles p ON p.email = m.email "
-        "WHERE m.workspace_id = ? ORDER BY m.joined_at ASC",
+        "WHERE m.workspace_id = ? ORDER BY m.joined_at ASC, m.email ASC",
         (workspace_id,),
     ).fetchall()
     return [dict(r) for r in rows]
@@ -3800,7 +3834,7 @@ GIG_ORDER = "ORDER BY (gig_date IS NULL) DESC, gig_date DESC, id DESC"
 # si vede nella cella degli elenchi. Finche' "prima" voleva dire "la piu'
 # vecchia", l'unico modo di cambiarla era cancellare tutte quelle davanti.
 # Con il segno la scegli, e le altre restano in ordine di arrivo.
-PHOTO_ORDER = "ORDER BY is_cover DESC, created_at ASC"
+PHOTO_ORDER = "ORDER BY is_cover DESC, created_at ASC, id ASC"
 
 
 def gig_to_dict(row):
@@ -3834,7 +3868,7 @@ def venue_status_from_gigs(conn, loc_id):
     bisogna rimetterlo da qualche parte.
     """
     row = conn.execute(
-        "SELECT MAX(status = 'suonato') AS suonato, COUNT(*) AS serate "
+        "SELECT MAX(CASE WHEN status = 'suonato' THEN 1 ELSE 0 END) AS suonato, COUNT(*) AS serate "
         "FROM gigs WHERE location_id = ?",
         (loc_id,),
     ).fetchone()
@@ -4800,7 +4834,7 @@ def fetch_locations(conn, ws, status=None, search=None, include_deleted=False):
         like = f"%{search.lower()}%"
         params.extend([like, like, like])
     query += " WHERE " + " AND ".join(clauses)
-    query += " ORDER BY name COLLATE NOCASE ASC"
+    query += " ORDER BY name COLLATE NOCASE ASC, id ASC"
     rows = conn.execute(query, params).fetchall()
 
     ad_rows = conn.execute(
@@ -4812,7 +4846,7 @@ def fetch_locations(conn, ws, status=None, search=None, include_deleted=False):
     # filtrano passando da li'.
     note_rows = conn.execute(
         "SELECT n.* FROM notes n JOIN locations l ON l.id = n.location_id "
-        "WHERE l.workspace_id = ? ORDER BY n.created_at ASC", (ws,)
+        "WHERE l.workspace_id = ? ORDER BY n.created_at ASC, n.id ASC", (ws,)
     ).fetchall()
     notes_by_location = {}
     for n in note_rows:
@@ -4822,7 +4856,7 @@ def fetch_locations(conn, ws, status=None, search=None, include_deleted=False):
         # Stesso ordine di PHOTO_ORDER, scritto con il prefisso: qui c'e' un
         # JOIN, e created_at ce l'hanno tutte e due le tabelle.
         "SELECT p.* FROM photos p JOIN locations l ON l.id = p.location_id "
-        "WHERE l.workspace_id = ? ORDER BY p.is_cover DESC, p.created_at ASC", (ws,)
+        "WHERE l.workspace_id = ? ORDER BY p.is_cover DESC, p.created_at ASC, p.id ASC", (ws,)
     ).fetchall()
     photos_by_location = {}
     for p in photo_rows:
@@ -4862,7 +4896,7 @@ def fetch_location(conn, ws, loc_id):
     ad_rows = conn.execute("SELECT * FROM art_directors WHERE workspace_id = ?", (ws,)).fetchall()
     ad_by_id = {r["id"]: dict(r) for r in ad_rows}
     note_rows = conn.execute(
-        "SELECT * FROM notes WHERE location_id = ? ORDER BY created_at ASC", (loc_id,)
+        "SELECT * FROM notes WHERE location_id = ? ORDER BY created_at ASC, id ASC", (loc_id,)
     ).fetchall()
     notes_by_location = {loc_id: [dict(n) for n in note_rows]}
     photo_rows = conn.execute(
@@ -5288,13 +5322,13 @@ def tags_per_location(conn, ws=None, loc_id=None):
     if loc_id is not None:
         righe = conn.execute(
             "SELECT location_id, tag FROM location_tags WHERE location_id = ? "
-            "ORDER BY created_at ASC", (loc_id,)
+            "ORDER BY created_at ASC, tag ASC", (loc_id,)
         ).fetchall()
     else:
         righe = conn.execute(
             "SELECT t.location_id, t.tag FROM location_tags t "
             "JOIN locations l ON l.id = t.location_id "
-            "WHERE l.workspace_id = ? ORDER BY t.created_at ASC", (ws,)
+            "WHERE l.workspace_id = ? ORDER BY t.created_at ASC, t.location_id ASC, t.tag ASC", (ws,)
         ).fetchall()
     per_loc = {}
     for r in righe:
@@ -5310,7 +5344,7 @@ def my_favorites(conn, ws, email):
     righe = conn.execute(
         "SELECT f.location_id FROM location_favorites f "
         "JOIN locations l ON l.id = f.location_id "
-        "WHERE l.workspace_id = ? AND f.email = ?", (ws, email),
+        "WHERE l.workspace_id = ? AND f.email = ? ORDER BY f.location_id", (ws, email),
     ).fetchall()
     return {"favorites": [r["location_id"] for r in righe]}
 
@@ -5359,7 +5393,7 @@ def tag_vocabolario(conn, ws):
     riconoscono uguali e vince la grafia di chi e' arrivato prima."""
     righe = conn.execute(
         "SELECT t.tag FROM location_tags t JOIN locations l ON l.id = t.location_id "
-        "WHERE l.workspace_id = ? AND l.deleted_at IS NULL ORDER BY t.created_at ASC",
+        "WHERE l.workspace_id = ? AND l.deleted_at IS NULL ORDER BY t.created_at ASC, t.location_id ASC, t.tag ASC",
         (ws,),
     ).fetchall()
     per_chiave = {}
@@ -7232,7 +7266,7 @@ def art_director_to_dict(row, counts):
 
 def fetch_art_directors(conn, ws):
     rows = conn.execute(
-        "SELECT * FROM art_directors WHERE workspace_id = ? ORDER BY name COLLATE NOCASE ASC", (ws,)
+        "SELECT * FROM art_directors WHERE workspace_id = ? ORDER BY name COLLATE NOCASE ASC, id ASC", (ws,)
     ).fetchall()
     count_rows = conn.execute(
         "SELECT art_director_id, COUNT(*) AS n FROM locations "
@@ -7411,7 +7445,7 @@ def clean_band_payload(body, partial):
 
 def fetch_bands(conn, ws):
     rows = conn.execute(
-        "SELECT * FROM bands WHERE workspace_id = ? ORDER BY name COLLATE NOCASE ASC", (ws,)
+        "SELECT * FROM bands WHERE workspace_id = ? ORDER BY name COLLATE NOCASE ASC, id ASC", (ws,)
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -7677,6 +7711,14 @@ def copia_di_sicurezza(conn, motivo):
     cancellazione che dall'app non si puo' disfare. Stesso nome delle copie
     fatte a mano prima dei deploy: crm.db.bak.<motivo>.<data>."""
     nome = "%s.bak.%s.%s" % (DB_PATH, motivo, datetime.now().strftime("%Y%m%d%H%M%S"))
+    if DATABASE_URL:
+        # Su PostgreSQL la copia la fa pg_dump, nel formato "custom" che si
+        # rimette con pg_restore. Stesso nome, stessa potatura.
+        conn.commit()
+        subprocess.run(["pg_dump", "--format=custom", "--no-owner", "--file", nome, DATABASE_URL],
+                       check=True, capture_output=True, timeout=300)
+        pota_copie_di_sicurezza()
+        return nome
     # Con una transazione aperta su questa connessione la copia non finisce
     # mai (7 ottobre 2026: file da 0 byte e database bloccato per tutti).
     conn.commit()
@@ -8516,7 +8558,7 @@ def export_zip(conn):
             "SELECT n.*, l.name AS palco, w.name AS band FROM notes n "
             "LEFT JOIN locations l ON l.id = n.location_id "
             "LEFT JOIN workspaces w ON w.id = l.workspace_id "
-            "ORDER BY n.created_at DESC")])))
+            "ORDER BY n.created_at DESC, n.id ASC")])))
 
     fogli.append(("art_director.csv", _csv_bytes(
         ["id", "band", "nome", "azienda", "indirizzo", "citta", "telefono", "cellulare", "email",
