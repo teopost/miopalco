@@ -14,6 +14,7 @@
   <a href="https://teopost.github.io/miopalco/">Sito</a> ·
   <a href="#installarla-sul-telefono">Installarla sul telefono</a> ·
   <a href="#ospitarla-sul-tuo-server">Ospitarla da te</a> ·
+  <a href="https://github.com/teopost/miopalco/releases">Novità</a> ·
   <a href="LICENSE">Licenza MIT</a>
 </p>
 
@@ -40,11 +41,11 @@ MioPalco è un'app per il telefono fatta per questo: segni i posti dove vuoi suo
 
 | | |
 |---|---|
-| **Palchi** | La rubrica dei posti dove suonare: pub, stabilimenti balneari, feste di paese, circoli, ristoranti, eventi privati. Ogni palco ha stato (Lead, Prospect, Interessato, Cliente, Inattivo, Archiviato), tipo, tag, contesto, stagionalità, indirizzo e posizione sulla mappa, referente o art director, foto di copertina e lo storico dei contatti. Ricerca, filtri a spunta multipla e vista mappa. |
+| **Palchi** | La rubrica dei posti dove suonare: pub, stabilimenti balneari, feste di paese, circoli, ristoranti, eventi privati. Ogni palco ha stato (Lead, Prospect, Interessato, Cliente, Inattivo, Archiviato), tipo, tag, contesto, stagionalità, indirizzo e posizione sulla mappa, referente o art director, foto di copertina e lo storico dei contatti. Ricerca, filtri a spunta multipla e vista mappa, con intorno a te un cerchio o l'area che raggiungi in auto in un certo tempo. Un segnalino tenuto premuto si sposta col dito. |
 | **Preferiti** | Una stella personale sui palchi che vuoi tenere sott'occhio. |
 | **Agenda** | I compiti (chi fa cosa e per quando, i miei o di tutti), le **programmazioni** (i palchi che preparano il calendario delle serate in questo mese e nei due dopo) e le serate in calendario. I mesi di programmazione si scelgono nel palco e valgono ogni anno: «a febbraio» torna da solo ogni stagione. |
 | **Opportunità** | Ogni tentativo di serata, dal primo contatto alla data: Contattato, Trattativa, Confermato, e poi Suonato, Annullato o Rifiutata. Con data, compenso e note. La prima serata suonata trasforma il palco in Cliente da sola. |
-| **Cassa** | I compensi delle serate entrano da soli. Le spese (trasferta, service, prove, strumenti, promozione, SIAE…) si segnano a mano e si possono legare a una serata. Incassato e da incassare, pagato e da pagare. |
+| **Cassa** | I compensi delle serate entrano da soli. Le spese (trasferta, service, prove, strumenti, promozione, SIAE…) si segnano a mano e si possono legare a una serata, come i ricavi extra (merch, rimborsi, contributi), ciascuno con la sua categoria. Incassato e da incassare, pagato e da pagare. |
 | **Home** | La stagione a colpo d'occhio: serate suonate e in calendario, media a serata, incassi, compiti in scadenza, palchi da sentire. I grafici confrontano gli anni, con un colore per ogni anno. |
 
 Inoltre:
@@ -98,6 +99,9 @@ docker compose up -d --build
 | `ADMIN_EMAILS` | Le email, separate da virgola, che vedono la scheda Admin: lì si curano i modelli con cui nascono le band nuove. |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_ENABLED` | Facoltative: un avviso su Telegram quando qualcuno entra nell'app. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Facoltative: le notifiche push sul telefono. Le chiavi si generano una volta sola con il comando scritto in `.env.example`. |
+| `GITHUB_TOKEN`, `GITHUB_REPO` | Facoltative: inoltrano le segnalazioni fatte dall'app come issue su GitHub. Il token è un fine-grained token con il solo permesso Issues sul repository (`teopost/miopalco` se `GITHUB_REPO` è vuota). |
+| `ORS_API_KEY` | Facoltativa: l'area raggiungibile in auto si calcola con OpenRouteService invece che con il server pubblico di Valhalla. |
+| `LOG_RETENTION_DAYS`, `DB_BACKUP_RETENTION` | Facoltative: quanti giorni tenere il registro in `data/logs` (180) e quante copie automatiche del database (7). |
 
 Ogni variabile è spiegata nei commenti di [`.env.example`](.env.example).
 
@@ -106,6 +110,8 @@ Ogni variabile è spiegata nei commenti di [`.env.example`](.env.example).
 - I dati stanno in due posti: il database nel volume Docker `miopalco-pg` e le foto in `data/`. `make backup` li salva tutti e due in un unico zip, `backups/miopalco-<data>-<ora>.zip`, anche con l'app accesa: dentro ci sono `miopalco.dump` (il database, da rimettere con `pg_restore`) e la cartella `data/`. Lo zip contiene dati personali: tienilo al sicuro. All'avvio l'app crea e aggiorna da sola lo schema del database.
 - Prima di una cancellazione che non si può disfare (eliminare una band dall'Admin) l'app salva da sola una copia del database in `data/crm.db.bak.<motivo>.<data>`: con PostgreSQL è un `pg_dump` in formato custom, che si rimette con `pg_restore`. Ne tiene le ultime `DB_BACKUP_RETENTION` (7 se non è impostata).
 - Senza `DATABASE_URL` (per esempio lanciando `python3 app.py` a mano) l'app usa SQLite, in `data/crm.db`.
+- I file statici sono dentro l'immagine Docker: dopo ogni modifica al codice serve `docker compose up -d --build`.
+- Il `Makefile` ha le scorciatoie più comuni: `make up`, `make logs`, `make rebuild`, `make shell`, `make backup`.
 
 ### Passare da SQLite a PostgreSQL
 
@@ -120,16 +126,14 @@ docker compose up -d
 ```
 
 Lo script legge `crm.db` in sola lettura e copia tutte le tabelle, id compresi, in una transazione sola. Poi rilegge tutto da PostgreSQL e lo confronta riga per riga con SQLite: alla prima differenza annulla tutto. Se PostgreSQL contiene già dei dati si ferma, a meno di `--force`. Dopo la migrazione `crm.db` resta dov'è, ma l'app non lo usa più.
-- I file statici sono dentro l'immagine Docker: dopo ogni modifica al codice serve `docker compose up -d --build`.
-- Il `Makefile` ha le scorciatoie più comuni: `make up`, `make logs`, `make rebuild`, `make shell`, `make backup`.
 
 ## Com'è fatta
 
 Pochi file e nessun framework.
 
 ```
-app.py              il server: libreria standard di Python (http.server + sqlite3),
-                    API JSON, login Google, notifiche push e Telegram, migrazioni
+app.py              il server: libreria standard di Python (http.server), API JSON,
+                    login Google, notifiche push e Telegram, registro, migrazioni
 pgcompat.py         PostgreSQL con la faccia di sqlite3: traduce al volo il dialetto
                     di SQLite delle query di app.py
 migra_sqlite_pg.py  porta i dati da data/crm.db (SQLite) a PostgreSQL
