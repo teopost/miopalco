@@ -1,7 +1,7 @@
 SERVICE := miopalco
 IMAGE   := miopalco
 
-.PHONY: help build up down restart rebuild logs ps shell clean import geocode
+.PHONY: help build up down restart rebuild logs ps shell clean import geocode backup
 
 help:
 	@echo "make build     - costruisce l'immagine Docker"
@@ -15,6 +15,7 @@ help:
 	@echo "make clean     - ferma il container e rimuove container + immagine (i dati in data/ restano intatti)"
 	@echo "make import    - rilancia lo script di importazione Excel dentro il container"
 	@echo "make geocode   - rilancia la geocodifica dei palchi dentro il container"
+	@echo "make backup    - salva database + foto (tutta data/) in un unico zip dentro backups/"
 
 build:
 	docker compose build
@@ -49,3 +50,23 @@ import:
 
 geocode:
 	docker compose exec $(SERVICE) python3 geocode_venues.py
+
+# Un solo zip in backups/ con dentro:
+#   miopalco.dump  - il database (pg_dump formato custom, si rimette con pg_restore)
+#   data/          - foto, foto degli annunci, log e copie automatiche
+# Il dump lo fa il container del database, quindi l'app puo' restare accesa.
+# Lo zip contiene dati personali: e' leggibile solo dal proprietario (umask 077).
+BACKUP_DIR := backups
+
+backup:
+	@set -eu; umask 077; mkdir -p $(BACKUP_DIR); \
+	stamp=$$(date +%Y%m%d-%H%M%S); \
+	tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	echo "Dump del database..."; \
+	docker compose exec -T db pg_dump -U miopalco --format=custom --no-owner miopalco > "$$tmp/miopalco.dump"; \
+	test -s "$$tmp/miopalco.dump"; \
+	echo "Creazione dello zip..."; \
+	python3 -m zipfile -c "$(BACKUP_DIR)/miopalco-$$stamp.zip.part" "$$tmp/miopalco.dump" data; \
+	mv "$(BACKUP_DIR)/miopalco-$$stamp.zip.part" "$(BACKUP_DIR)/miopalco-$$stamp.zip"; \
+	python3 -m zipfile -t "$(BACKUP_DIR)/miopalco-$$stamp.zip" >/dev/null; \
+	echo "Backup pronto: $(BACKUP_DIR)/miopalco-$$stamp.zip ($$(du -h "$(BACKUP_DIR)/miopalco-$$stamp.zip" | cut -f1))"

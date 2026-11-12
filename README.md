@@ -103,7 +103,7 @@ Ogni variabile è spiegata nei commenti di [`.env.example`](.env.example).
 
 **Da sapere**
 - Il login con Google, l'installazione come app e le notifiche richiedono **HTTPS**. Il modo più semplice è un [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) verso la porta 8765, ma va bene qualunque reverse proxy.
-- I dati stanno in due posti: il database nel volume Docker `miopalco-pg` e le foto in `data/`. Il backup va fatto di tutti e due: `docker compose exec db pg_dump -U miopalco -Fc miopalco > miopalco.dump` per il database, una copia di `data/` per le foto. All'avvio l'app crea e aggiorna da sola lo schema del database.
+- I dati stanno in due posti: il database nel volume Docker `miopalco-pg` e le foto in `data/`. `make backup` li salva tutti e due in un unico zip, `backups/miopalco-<data>-<ora>.zip`, anche con l'app accesa: dentro ci sono `miopalco.dump` (il database, da rimettere con `pg_restore`) e la cartella `data/`. Lo zip contiene dati personali: tienilo al sicuro. All'avvio l'app crea e aggiorna da sola lo schema del database.
 - Prima di una cancellazione che non si può disfare (eliminare una band dall'Admin) l'app salva da sola una copia del database in `data/crm.db.bak.<motivo>.<data>`: con PostgreSQL è un `pg_dump` in formato custom, che si rimette con `pg_restore`. Ne tiene le ultime `DB_BACKUP_RETENTION` (7 se non è impostata).
 - Senza `DATABASE_URL` (per esempio lanciando `python3 app.py` a mano) l'app usa SQLite, in `data/crm.db`.
 
@@ -121,7 +121,7 @@ docker compose up -d
 
 Lo script legge `crm.db` in sola lettura e copia tutte le tabelle, id compresi, in una transazione sola. Poi rilegge tutto da PostgreSQL e lo confronta riga per riga con SQLite: alla prima differenza annulla tutto. Se PostgreSQL contiene già dei dati si ferma, a meno di `--force`. Dopo la migrazione `crm.db` resta dov'è, ma l'app non lo usa più.
 - I file statici sono dentro l'immagine Docker: dopo ogni modifica al codice serve `docker compose up -d --build`.
-- Il `Makefile` ha le scorciatoie più comuni: `make up`, `make logs`, `make rebuild`, `make shell`.
+- Il `Makefile` ha le scorciatoie più comuni: `make up`, `make logs`, `make rebuild`, `make shell`, `make backup`.
 
 ## Com'è fatta
 
