@@ -10339,6 +10339,12 @@ def main():
         promemoria_partenza_silenziosa(conn)
     finally:
         conn.close()
+    # La coda di ascolto predefinita di Python e' di 5 connessioni. All'avvio
+    # l'app fa una ventina di chiamate insieme e Traefik apre una connessione
+    # per ciascuna: quelle oltre la coda venivano scartate dal kernel e
+    # ritentate dopo un secondo (12 novembre 2026: la Home restava nera per
+    # quel secondo). Va impostata sulla classe, prima di creare il server.
+    ThreadingHTTPServer.request_queue_size = 128
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     # Nel registro si vedono anche i deploy: ogni avvio con la sua build.
     registra("avvio", build=build_label(), impronta=build_version())
